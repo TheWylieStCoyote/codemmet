@@ -1,0 +1,36 @@
+---
+name: codemmet
+description: Emmet-style abbreviation expansion for code (Rust, Python, C, C++, JavaScript, TypeScript, Go), delivered as a language server. Abbreviations like fn:read>for@lines expand into idiomatic code with tabstops.
+homepage: https://github.com/TheWylieStCoyote/codemmet
+licenses:
+  - MIT
+  - Apache-2.0
+languages:
+  - Rust
+  - Python
+  - C
+  - C++
+  - JavaScript
+  - TypeScript
+  - Go
+categories:
+  - LSP
+
+source:
+  id: pkg:github/TheWylieStCoyote/codemmet@v0.4.1
+  asset:
+    - target: linux_x64_gnu
+      file: codemmet-{{version}}-x86_64-unknown-linux-gnu.tar.gz
+      bin: codemmet
+    - target: darwin_arm64
+      file: codemmet-{{version}}-aarch64-apple-darwin.tar.gz
+      bin: codemmet
+    - target: win_x64
+      file: codemmet-{{version}}-x86_64-pc-windows-msvc.zip
+      bin: codemmet.exe
+
+bin:
+  codemmet: "{{source.asset.bin}}"
+
+neovim:
+  lspconfig: codemmet
