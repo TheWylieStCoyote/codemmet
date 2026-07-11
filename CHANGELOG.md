@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Vimdoc.** `:help codemmet` — a full reference for the Neovim plugin
+  (setup, every option, command, keymap, and Lua function, the `.codemmet`
+  filetype support, and the health check), with one help tag per item
+  (`:help codemmet-options-preview`, `:help :CodemmetScaffold`,
+  `:help codemmet.setup()`). The generated `doc/tags` is gitignored.
+- **Native `lsp/codemmet.lua`.** On Neovim 0.11+,
+  `vim.lsp.enable("codemmet")` starts the server straight from the plugin's
+  runtimepath — the minimal-LSP alternative to the full-featured
+  `require("codemmet").setup()`. The definition guards against double-attach
+  when both mechanisms run (it skips starting a second client when a codemmet
+  client is already attached to the buffer).
+- **Prepared registry submissions in `contrib/`.** A mason-registry package
+  definition (`contrib/mason/codemmet/package.yaml`, per-platform v0.4.1
+  release assets matching the release workflow) and an nvim-lspconfig server
+  definition in the current `lsp/*.lua` style
+  (`contrib/lspconfig/codemmet.lua`), each with submission instructions in
+  `contrib/README.md`. Nothing has been sent upstream yet.
+
 ## [0.4.1] - 2026-07-10
 
 ### Fixed

@@ -43,6 +43,11 @@ Neovim 0.11+, or through your completion plugin), and installs expand and wrap
 key bindings. `:checkhealth codemmet` reports the binary, version support, and
 whether completion wiring is active.
 
+The plugin ships vimdoc: `:help codemmet` covers everything on this page from
+inside the editor, with one help tag per option (`:help
+codemmet-options-preview`), command (`:help :CodemmetScaffold`), and function
+(`:help codemmet.setup()`).
+
 ### Install
 
 Point a plugin manager at the repository. The plugin calls `codemmet` on your
@@ -507,7 +512,31 @@ points at, and the precedence rules for project vs user packs.
 
 ### Neovim without the plugin
 
-You do not need the shipped plugin. You can start the server directly with
+You do not need the shipped plugin's full feature set to use the server. On
+Neovim 0.11+ the repository also ships a native `lsp/codemmet.lua`
+(`vim.lsp.config` definition, loaded from the runtimepath), so with the
+repository installed as a plugin one line starts the server — no
+nvim-lspconfig required:
+
+```lua
+vim.lsp.enable("codemmet")
+```
+
+That is the minimal-LSP alternative: the server attaches with
+`root_markers = { ".codemmet", ".git" }` and completion works through your
+LSP completion UI, nothing more. `require("codemmet").setup()` remains the
+full-featured path (keymaps, completion autotrigger wiring, live preview,
+`.codemmet` file mode, the `:Codemmet*` commands). The shipped definition
+guards against double-attach if both mechanisms run — it skips starting a
+second client when one is already attached to the buffer — but pick one; see
+`:help codemmet-vim.lsp.enable`.
+
+Prepared submissions for the [mason](https://github.com/mason-org/mason-registry)
+and [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) registries
+(binary install via `:MasonInstall codemmet`, server definition for lspconfig
+users) live in [`contrib/`](../contrib/README.md), ready to be sent upstream.
+
+You can also skip the repository entirely and start the server directly with
 `vim.lsp.start` from your own `FileType` autocommand:
 
 ```lua
