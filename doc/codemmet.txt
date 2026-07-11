@@ -1,0 +1,523 @@
+*codemmet.txt*	Emmet-style abbreviation expansion for code
+
+==============================================================================
+CODEMMET					*codemmet* *codemmet.nvim*
+
+codemmet.nvim is the Neovim plugin shipped inside the codemmet repository.
+It drives the `codemmet lsp` language server so abbreviations like
+`fn:read>for@lines` expand into idiomatic code, with completion as you
+type, explicit expand/wrap keymaps, a live ghost-line preview, a snippet
+browser, and first-class support for authoring `.codemmet` source files.
+
+Requirements:
+- Neovim >= 0.10 (the plugin uses |vim.snippet|). Built-in LSP completion
+  auto-enable and the native |codemmet-vim.lsp.enable| path need 0.11+.
+- The `codemmet` binary, reachable on your PATH or pointed at through the
+  |codemmet-options-cmd| option. See the repository's docs/installation.md.
+
+Supported filetypes (default): rust, python, c, cpp, javascript,
+javascriptreact, typescript, typescriptreact, go — plus the `codemmet`
+filetype for `.codemmet` sources (|codemmet-filetype|).
+
+==============================================================================
+CONTENTS						*codemmet-contents*
+
+  1. Setup ...................................... |codemmet-setup|
+  2. Options .................................... |codemmet-options|
+  3. Commands ................................... |codemmet-commands|
+  4. Keymaps .................................... |codemmet-keymaps|
+  5. Functions .................................. |codemmet-functions|
+  6. The .codemmet filetype ..................... |codemmet-filetype|
+  7. Health ..................................... |codemmet-health|
+  8. About ...................................... |codemmet-about|
+
+==============================================================================
+SETUP							*codemmet-setup*
+
+Install the repository with a plugin manager and call `setup()`. With
+lazy.nvim: >lua
+
+    {
+      "TheWylieStCoyote/codemmet",
+      build = "cargo build --release",
+      ft = {
+        "rust", "python", "c", "cpp",
+        "javascript", "javascriptreact", "typescript", "typescriptreact",
+        "go",
+      },
+      opts = {
+        cmd = { "codemmet", "lsp" }, -- or an absolute path to the binary
+      },
+    }
+<
+Note that `build = "cargo build --release"` compiles the binary into the
+plugin's own `target/release/` directory — it does not put `codemmet` on
+your PATH. Either run `cargo install codemmet` (or
+`cargo install --path crates/codemmet` from a clone), or set
+|codemmet-options-cmd| to the built binary's absolute path.
+
+`setup()` registers a |FileType| autocommand that starts the language
+server (|vim.lsp.start()|) for each configured filetype, installs
+buffer-local keymaps when the server attaches (|codemmet-keymaps|), and
+enables Neovim's built-in LSP completion for the client
+(|codemmet-options-completion|).
+
+Run |:checkhealth| `codemmet` after setup to verify the whole chain
+(|codemmet-health|).
+
+------------------------------------------------------------------------------
+NATIVE VIM.LSP.ENABLE				*codemmet-vim.lsp.enable*
+
+The plugin also ships `lsp/codemmet.lua`, a |vim.lsp.config| definition
+Neovim 0.11+ picks up from the runtimepath. If you only want the language
+server — completion through the LSP, no keymaps, preview, or user
+commands — you can skip `setup()` entirely: >lua
+
+    vim.lsp.enable("codemmet")
+<
+This is the minimal-LSP alternative; `require("codemmet").setup()` remains
+the full-featured path. The shipped config guards against double-attach:
+if a codemmet client started by `setup()` is already attached to the
+buffer, `vim.lsp.enable` will not start a second one. Still, pick one
+mechanism — running both buys you nothing.
+
+Users of nvim-lspconfig can use the same definition through that plugin
+once the server is registered there (see `contrib/lspconfig/` in the
+repository).
+
+==============================================================================
+OPTIONS							*codemmet-options*
+
+All `setup()` fields are optional. The defaults: >lua
+
+    require("codemmet").setup({
+      cmd = { "codemmet", "lsp" },
+      filetypes = {
+        "rust", "python", "c", "cpp",
+        "javascript", "javascriptreact", "typescript", "typescriptreact",
+        "go",
+      },
+      keymaps = {
+        expand = "<A-e>",
+        wrap = "<leader>cw",
+        snippets = "<leader>cl",
+        context = "<leader>cv",
+        render = "<A-E>",
+      },
+      completion = { enabled = true, autotrigger = true },
+      init_options = {},
+      preview = false,
+      render = { snippet_reentry = true },
+      render_on_save = false,
+      -- notes_file = stdpath("data") .. "/codemmet/notes.md",
+    })
+<
+							*codemmet-options-cmd*
+cmd		(`string[]`, default `{ "codemmet", "lsp" }`)
+	Command used to start the language server. Use an absolute path when
+	`codemmet` is not on PATH, e.g.
+	`{ "/path/to/codemmet/target/release/codemmet", "lsp" }`. The same
+	binary also runs the CLI subcommands the plugin shells out to
+	(render, capture, scaffold, train).
+
+						*codemmet-options-filetypes*
+filetypes	(`string[]`)
+	Filetypes the server is started for. Defaults to the nine supported
+	languages listed above. The `codemmet` filetype is always added on
+	top of this list so `.codemmet` sources attach too
+	(|codemmet-filetype|).
+
+						*codemmet-options-keymaps*
+keymaps		(`table`)
+	Buffer-local key bindings installed when the server attaches. Set
+	any entry to `false` to skip that binding (the user command and Lua
+	function remain available). Entries:
+
+	- `expand` (default `<A-e>`): insert- and normal-mode expand; the
+	  normal-mode side is dot-repeatable.
+	- `wrap` (default `<leader>cw`): visual-mode wrap, and a normal-mode
+	  operator that takes a motion or text object; dot-repeatable.
+	- `snippets` (default `<leader>cl`): normal-mode snippet browser.
+	- `context` (default `<leader>cv`): normal-mode context viewer.
+	- `render` (default `<A-E>`, Shift-Alt-e): normal mode renders the
+	  whole buffer as a `.codemmet` source, visual mode the selection.
+
+	See |codemmet-keymaps| for details on each mapping.
+
+						*codemmet-options-completion*
+completion	(`boolean` or `table`)
+	Completion wiring, default `{ enabled = true, autotrigger = true }`.
+	A boolean is shorthand for `{ enabled = ... }`. Fields:
+
+	- `enabled` (default `true`): on attach, enable Neovim's built-in
+	  LSP completion (|vim.lsp.completion|) for the codemmet client.
+	  Requires Neovim 0.11+; on 0.10 the wiring quietly no-ops. When
+	  nvim-cmp or blink.cmp is loaded the auto-enable is skipped — those
+	  engines already consume LSP sources, and enabling both would show
+	  a double menu.
+	- `autotrigger` (default `true`): open the completion menu
+	  automatically while typing.
+	- `mode` (default `nil`): the server-side completion gate, one of
+	  `"always"`, `"operators-only"`, `"off"`. Flows into
+	  `initializationOptions.completion`; an explicit
+	  `init_options.completion` wins over it. `nil` keeps the server
+	  default (`"always"`).
+
+					*codemmet-options-init_options*
+init_options	(`table`, default `{}`)
+	Forwarded verbatim as the LSP `initializationOptions`. The server
+	accepts `snippets_dir` (directory of user snippet override packs),
+	`completion` (the gate above), `project_snippets` (opt into loading
+	`.codemmet/snippets` packs from the project tree; off by default for
+	trust reasons), and `paths_file` (a personal `paths.toml` mapping
+	path prefixes to snippet directories). See the repository's
+	docs/editors.md for the full reference.
+
+						*codemmet-options-preview*
+preview		(`boolean` or `table`, default `false`)
+	Live ghost-line preview: while you type an abbreviation in insert
+	mode, the clean expansion is shown as dimmed |virtual-lines| below
+	the current line (highlight group `CodemmetPreview`, linked to
+	|hl-Comment| by default). No buffer edit, no completion menu. Fields
+	of the table form:
+
+	- `enabled` (default `true` for the table form): turn the preview on
+	  when the server attaches.
+	- `debounce_ms` (default `60`): typing-pause before the server is
+	  queried, in milliseconds. Must be a positive integer; invalid
+	  values fall back to 60 with a warning at setup.
+
+	`preview = true` is shorthand for
+	`{ enabled = true, debounce_ms = 60 }`. The preview is off by
+	default because it updates on every keystroke; toggle it per buffer
+	with |:CodemmetPreviewToggle| (which honors a configured
+	`debounce_ms` even when `enabled = false`).
+
+						*codemmet-options-render*
+render		(`table`, default `{ snippet_reentry = true }`)
+	Whole-buffer render behavior for |:CodemmetRenderBuffer| and the
+	`render` keymap. With `snippet_reentry = true`, a whole-buffer
+	render re-enters snippet mode: the CLI renders with tabstops kept
+	and the result is expanded through |vim.snippet.expand()|, so the
+	cursor starts at the first tabstop and jumping (|vim.snippet.jump()|)
+	walks construct to construct. Set it to `false` for plain text with
+	the cursor at the top. Visual/range renders always take the
+	plain-text path.
+
+					*codemmet-options-render_on_save*
+render_on_save	(`boolean`, default `false`)
+	Render a saved `.codemmet` buffer to its sidecar file (the buffer
+	name minus `.codemmet`) on |BufWritePost|. Atomic: nothing is
+	written on a failed render. See |codemmet-filetype|.
+
+						*codemmet-options-notes_file*
+notes_file	(`string`, default `stdpath("data") .. "/codemmet/notes.md"`)
+	Where |:CodemmetNote| appends dogfooding notes.
+
+==============================================================================
+COMMANDS						*codemmet-commands*
+
+							*:CodemmetExpand*
+:CodemmetExpand
+	Expand the abbreviation immediately before the cursor. Notifies when
+	no codemmet client is attached or the server rejects the
+	abbreviation.
+
+							*:CodemmetWrap*
+:[range]CodemmetWrap
+	Wrap the given lines (default: the current line) in an abbreviation.
+	Prompts for the abbreviation through |vim.ui.input()|. The wrap is
+	line-wise: the selected lines become the content the abbreviation
+	wraps around.
+
+						*:CodemmetRenderBuffer*
+:[range]CodemmetRenderBuffer
+	Render the buffer (default) or the given range as a `.codemmet`
+	source — one abbreviation per line — into code, in place, via the
+	`codemmet render` CLI. The language comes from the buffer's
+	filetype and the indent from 'shiftwidth'/'expandtab'. A
+	whole-buffer render re-enters snippet mode by default
+	(|codemmet-options-render|). On failure the buffer is untouched and
+	the cursor jumps to the offending line with the diagnostic in a
+	notification.
+
+							*:CodemmetCapture*
+:[range]CodemmetCapture [name]
+	Capture the selected lines (default: the current line) into the
+	project snippet pack as a reusable, parameterized snippet, via the
+	`codemmet capture` CLI. Prompts for the trigger name when [name] is
+	omitted. The server then reloads its snippet packs so the new
+	trigger expands immediately in the same session.
+
+							*:CodemmetSnippets*
+:CodemmetSnippets
+	Browse every trigger registered for this buffer in a
+	|vim.ui.select()| picker and expand the picked one at the cursor.
+	Entries show the trigger, description, the scope variant that would
+	fire at the cursor, and a one-line body hint. Telescope, fzf-lua, or
+	snacks.nvim take over the picker automatically when installed.
+
+							*:CodemmetContext*
+:CodemmetContext
+	Show the codemmet context at the cursor in a floating window: the
+	syntactic scope stack (e.g. `root > fn-body`) and the in-scope
+	collections — enum variants, struct fields, list bindings — that
+	data-driven repeats like `match:Msg>arm*` can expand over. The float
+	closes when the cursor moves.
+
+							*:CodemmetRenderTo*
+:CodemmetRenderTo [file]
+	Render the `.codemmet` buffer through `codemmet render -` and write
+	the result to [file] — by default the sidecar name, the buffer path
+	minus `.codemmet` (`main.rs.codemmet` -> `main.rs`). Atomic: on any
+	failure nothing is written and the CLI's `<stdin>:LINE:` diagnostic
+	is shown instead. See |codemmet-filetype|.
+
+							*:CodemmetScaffold*
+:CodemmetScaffold [abbr]
+	Expand a multi-file snippet across files (create/append/inject) via
+	the `codemmet scaffold` CLI, then open the primary file with its
+	body inserted as a live snippet so its tabstops are interactive.
+	Prompts for the invocation (trigger plus arguments, e.g.
+	`djfeature:blog`) when [abbr] is omitted. The project root is the
+	nearest ancestor containing `.codemmet` or `.git`.
+
+						*:CodemmetPreviewToggle*
+:CodemmetPreviewToggle
+	Toggle the live ghost-line preview (|codemmet-options-preview|) in
+	the current buffer.
+
+							*:CodemmetTrain*
+:CodemmetTrain [args]
+	Open the interactive syntax trainer (`codemmet train`) in a botright
+	|terminal| split and enter terminal mode. The buffer's filetype
+	picks the trained language when the plugin supports it; extra [args]
+	are appended to the command line verbatim, e.g.
+	`:CodemmetTrain --mode drills --level 9`. A binary built without the
+	`train` cargo feature produces a notification instead of a dead
+	split.
+
+						*:CodemmetRenderPreview*
+:CodemmetRenderPreview
+	Toggle a live vertical split showing the current buffer rendered as
+	a `.codemmet` source file. The split is a read-only scratch buffer,
+	syntax-highlighted as the target language, re-rendered on every edit
+	(debounced, 150 ms by default). On a failed render the split shows
+	the `<stdin>:LINE:` diagnostic highlighted with `CodemmetRenderError`
+	(linked to |hl-DiagnosticError|) instead of stale output. Configure
+	via `require("codemmet.render_preview").config`
+	(|codemmet-functions|).
+
+							*:CodemmetNote*
+:CodemmetNote [text]
+	Append a timestamped dogfooding note — tagged with the buffer's
+	language, `file:line`, and the line under the cursor — to the notes
+	file (|codemmet-options-notes_file|). Prompts when [text] is
+	omitted.
+
+==============================================================================
+KEYMAPS							*codemmet-keymaps*
+
+Keymaps are installed buffer-locally on |LspAttach|, only in buffers the
+codemmet server attaches to. Configure or disable them through
+|codemmet-options-keymaps|.
+
+				*codemmet_<A-e>* *codemmet-expand-keymap*
+<A-e>		(insert, normal)
+	Expand the abbreviation immediately before the cursor. In normal
+	mode this is dot-repeatable: |.| re-inserts the last expanded
+	abbreviation at the cursor and expands it there.
+
+				*codemmet_<leader>cw* *codemmet-wrap-keymap*
+<leader>cw	(visual, normal-operator)
+	In visual mode, wrap the selected lines in an abbreviation
+	(prompted). In normal mode this is an operator: it takes a motion or
+	text object (`<leader>cw ip`, `<leader>cw i{`) and wraps the covered
+	lines, always line-wise. Dot-repeatable: |.| re-applies the same
+	abbreviation over the repeated motion, without prompting.
+
+			*codemmet_<leader>cl* *codemmet-snippets-keymap*
+<leader>cl	(normal)
+	Browse the buffer's snippets and expand the picked one
+	(|:CodemmetSnippets|).
+
+			*codemmet_<leader>cv* *codemmet-context-keymap*
+<leader>cv	(normal)
+	Show the codemmet context at the cursor (|:CodemmetContext|).
+
+				*codemmet_<A-E>* *codemmet-render-keymap*
+<A-E>		(normal, visual)
+	Render the whole buffer (normal mode) or the selected lines (visual
+	mode) as a `.codemmet` source into code, in place
+	(|:CodemmetRenderBuffer|).
+
+A standard-Vim caveat on dot-repeat: if the applied snippet leaves
+tabstops and you type into them, that insertion becomes the latest change,
+so |.| repeats the typed text instead of the codemmet operation. Leave the
+snippet without typing and |.| keeps repeating the expand or wrap.
+
+==============================================================================
+FUNCTIONS				*codemmet-functions* *codemmet-api*
+
+The `require("codemmet")` module. All functions notify (never error) when
+no codemmet client is attached to the current buffer.
+
+							*codemmet.setup()*
+setup({opts})
+	Configure the plugin: start the language server for the configured
+	filetypes, install buffer-local keymaps on attach, and wire up
+	completion. {opts} is a |codemmet-options| table; all fields
+	optional.
+
+							*codemmet.config*
+config
+	The resolved configuration from the last `setup()` call, `nil`
+	before any. Read-only introspection (used by the health check).
+
+							*codemmet.expand()*
+expand()
+	Expand the abbreviation immediately before the cursor.
+
+						*codemmet.expand_operator()*
+expand_operator()
+	Dot-repeatable normal-mode expand, for an expression mapping: arms
+	'operatorfunc' and returns `"g@l"`. Bind with `expr = true`: >lua
+
+	    vim.keymap.set("n", "<A-e>",
+	      require("codemmet").expand_operator, { expr = true })
+<
+							*codemmet.wrap()*
+wrap({opts})
+	Wrap the visual selection (or `opts.line1..opts.line2`, or the
+	cursor line) in an abbreviation, line-wise. Fields of {opts}:
+	`abbreviation` (skips the prompt when given), `line1`, `line2`.
+	Useful for a fixed wrapping abbreviation on its own key: >lua
+
+	    require("codemmet").wrap({ abbreviation = "fori10" })
+<
+						*codemmet.wrap_operator()*
+wrap_operator()
+	Wrap-as-an-operator, for a normal-mode expression mapping (`expr =
+	true`): arms 'operatorfunc' and returns `"g@"`, so the mapping takes
+	any motion or text object. Prompts for the abbreviation; |.| repeats
+	the wrap with the same abbreviation without prompting.
+
+							*codemmet.render()*
+render({opts})
+	Render the buffer — or the visual selection /
+	`opts.line1..opts.line2` — as a `.codemmet` source into code, in
+	place (|:CodemmetRenderBuffer|).
+
+							*codemmet.capture()*
+capture({opts})
+	Capture the visual selection (or `opts.line1..opts.line2`) into the
+	project snippet pack (|:CodemmetCapture|). Fields of {opts}: `name`
+	(skips the prompt), `description`, `line1`, `line2`.
+
+							*codemmet.scaffold()*
+scaffold({opts})
+	Expand a multi-file snippet across files, then open the primary file
+	(|:CodemmetScaffold|). Field of {opts}: `abbr` (the invocation;
+	prompts when omitted).
+
+							*codemmet.snippets()*
+snippets()
+	Open the snippet browser (|:CodemmetSnippets|).
+
+							*codemmet.context()*
+context()
+	Show the context at the cursor (|:CodemmetContext|).
+
+							*codemmet.train()*
+train({opts})
+	Open the syntax trainer in a terminal split (|:CodemmetTrain|).
+	Field of {opts}: `args` (`string[]`, appended verbatim).
+
+							*codemmet.render_to()*
+render_to({opts})
+	Render a `.codemmet` buffer to a code file (|:CodemmetRenderTo|).
+	Fields of {opts}: `file` (default: the sidecar name), `bufnr`
+	(default: the current buffer).
+
+						*codemmet.toggle_preview()*
+toggle_preview()
+	Toggle the live ghost-line preview for the current buffer
+	(|:CodemmetPreviewToggle|).
+
+					*codemmet.toggle_render_preview()*
+toggle_render_preview()
+	Toggle the live render-preview split (|:CodemmetRenderPreview|).
+
+							*codemmet.note()*
+note({text})
+	Append a dogfooding note with the current buffer's context to the
+	notes file (|:CodemmetNote|).
+
+					*codemmet.render_preview.config*
+The render-preview split reads `require("codemmet.render_preview").config`:
+`debounce_ms` (default `150`) is the delay between the last edit and the
+re-render, and `cmd` overrides the binary (default: the attached client's,
+else `codemmet` on PATH): >lua
+
+    require("codemmet.render_preview").config.debounce_ms = 300
+    require("codemmet.render_preview").config.cmd = "/path/to/codemmet"
+<
+==============================================================================
+THE .CODEMMET FILETYPE					*codemmet-filetype*
+
+`.codemmet` source files — the multi-line file-mode format rendered by
+`codemmet render`: one abbreviation per line, blank lines passing through,
+`#lang`/`#repeat` directives honored — are a first-class authoring format:
+
+- Filetype and highlighting ~
+  `*.codemmet` files get the `codemmet` filetype and a small line-oriented
+  syntax: directive lines, `# ` comments, the composition operators, and
+  quoted arguments. An unknown `#word` is highlighted as an error because
+  the renderer rejects it.
+
+- Completion in the inner language ~
+  The buffer attaches to the codemmet server with the languageId of the
+  INNER language, resolved the same way the CLI infers it: a `#lang`
+  directive in the header wins; otherwise the inner extension of a
+  `NAME.EXT.codemmet` name (`main.rs.codemmet` -> rust). Trigger
+  completion, the expand keymap, and the live preview all work while you
+  author the file. When neither rung resolves (a bare `NAME.codemmet`
+  with no `#lang`), the server is not started for that buffer.
+
+- Rendering to the sidecar file ~
+  |:CodemmetRenderTo| writes the rendered code to a file (default: the
+  buffer name minus `.codemmet`), atomically. With
+  |codemmet-options-render_on_save| every save renders to the sidecar.
+
+- Live output ~
+  |:CodemmetRenderPreview| shows the rendered output in a live split
+  while you write.
+
+==============================================================================
+HEALTH							*codemmet-health*
+
+Run |:checkhealth| `codemmet` to verify the whole expansion chain:
+
+- the `codemmet` binary is found and executable (resolved from the running
+  client, else the `setup()` cmd, else PATH);
+- `codemmet --version` matches the plugin checkout's version;
+- tree-sitter context support is compiled in (a minimal build degrades
+  silently: scope variants never fire and completion is not suppressed
+  inside strings and comments);
+- the snippet packs pass `codemmet check`;
+- completion wiring is active, skipped (and why), or unsupported;
+- the language server is running and attached.
+
+Run it first whenever an expansion does not happen.
+
+==============================================================================
+ABOUT					*codemmet-about* *codemmet-license*
+
+codemmet is a Rust workspace; the Neovim plugin ships in the same
+repository under `lua/`, `plugin/`, `lsp/`, and `syntax/`.
+
+Repository:	https://github.com/TheWylieStCoyote/codemmet
+Manual:		docs/editors.md (Neovim and other editors)
+License:	MIT or Apache-2.0, at your option
+
+ vim:tw=78:ts=8:noet:ft=help:norl:
