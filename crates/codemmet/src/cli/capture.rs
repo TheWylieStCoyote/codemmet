@@ -93,7 +93,7 @@ pub fn run(sources: &Sources, args: &CaptureArgs) -> ExitCode {
             } else {
                 format!("{count} parameter(s): {}", names.join(", "))
             };
-            println!(
+            emit!(
                 "captured `{}` ({params}) into {}",
                 args.name,
                 path.display()

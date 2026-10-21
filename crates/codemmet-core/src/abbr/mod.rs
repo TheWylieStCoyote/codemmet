@@ -239,10 +239,17 @@ impl Predicate {
                 ));
             }
         };
-        if matches!(&op, Some(PredicateOp::Eq(v) | PredicateOp::Glob(v)) if v.is_empty()) {
-            return Err(format!(
-                "filter `{token}`: missing a value after the operator"
-            ));
+        if let Some(PredicateOp::Eq(v) | PredicateOp::Glob(v)) = &op {
+            if v.is_empty() {
+                return Err(format!(
+                    "filter `{token}`: missing a value after the operator"
+                ));
+            }
+            if v.starts_with(['=', '~']) {
+                return Err(format!(
+                    "filter `{token}`: a value may not start with `=` or `~` (one operator only)"
+                ));
+            }
         }
         Ok(Self {
             negate,
@@ -369,7 +376,7 @@ mod filter_tests {
 
     #[test]
     fn predicate_errors() {
-        for bad in ["", "!", "=x", "vis=", "vis~", "vis<3"] {
+        for bad in ["", "!", "=x", "vis=", "vis~", "vis<3", "vis==", "vis=~x"] {
             assert!(Predicate::parse(bad).is_err(), "`{bad}` should be rejected");
         }
     }

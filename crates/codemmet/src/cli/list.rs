@@ -39,7 +39,7 @@ pub fn run(sources: &Sources, args: &ListArgs) -> ExitCode {
                 })
             })
             .collect();
-        println!("{}", serde_json::Value::Array(items));
+        emit!("{}", serde_json::Value::Array(items));
     } else {
         let width = lang
             .set
@@ -49,7 +49,7 @@ pub fn run(sources: &Sources, args: &ListArgs) -> ExitCode {
             .unwrap_or(0);
         for snippet in lang.set.iter() {
             let description = snippet.description.as_deref().unwrap_or("");
-            println!("{:<width$}\t{description}", snippet.trigger);
+            emit!("{:<width$}\t{description}", snippet.trigger);
         }
     }
     ExitCode::SUCCESS

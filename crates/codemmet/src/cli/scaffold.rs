@@ -304,7 +304,7 @@ fn emit_json(planned: &[Planned]) -> ExitCode {
             obj
         })
         .collect();
-    println!("{}", serde_json::Value::Array(entries));
+    emit!("{}", serde_json::Value::Array(entries));
     ExitCode::SUCCESS
 }
 
@@ -312,17 +312,17 @@ fn emit_json(planned: &[Planned]) -> ExitCode {
 fn emit_text(planned: &[Planned]) -> ExitCode {
     for entry in planned {
         let star = if entry.primary { " (primary)" } else { "" };
-        println!(
+        emit!(
             "# {} {}{}",
             entry.action.as_str(),
             entry.path.display(),
             star
         );
-        println!("{}", entry.content.trim_end_matches('\n'));
+        emit!("{}", entry.content.trim_end_matches('\n'));
         for line in &entry.manual_requires {
-            println!("# requires (add manually): {line}");
+            emit!("# requires (add manually): {line}");
         }
-        println!();
+        emit!();
     }
     ExitCode::SUCCESS
 }
@@ -336,7 +336,7 @@ fn apply(planned: &[Planned]) -> ExitCode {
         }
         // Mark the primary file so an editor wrapper knows which to open.
         let mark = if entry.primary { " (primary)" } else { "" };
-        println!("{} {}{}", entry.action.as_str(), entry.path.display(), mark);
+        emit!("{} {}{}", entry.action.as_str(), entry.path.display(), mark);
         for line in &entry.manual_requires {
             eprintln!(
                 "note: {} needs `{line}` — add it to the file's imports (not \

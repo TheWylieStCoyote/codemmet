@@ -65,7 +65,7 @@ pub fn run(sources: &Sources, args: &WrapArgs) -> ExitCode {
         selection,
     ) {
         Ok(expansion) => {
-            println!("{}", expansion.body);
+            emit!("{}", expansion.body);
             ExitCode::SUCCESS
         }
         Err(err) => {

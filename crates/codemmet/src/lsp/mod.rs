@@ -183,15 +183,33 @@ struct Server {
     /// Explicit source files per document (`codemmet.setSource`): the file
     /// whose definitions feed `src.*` collections and `${src.*}` variables
     /// when expanding in that document (a test file).
-    sources: HashMap<Uri, PathBuf>,
+    sources: HashMap<Uri, SourceSlot>,
+}
+
+/// A document's explicit source file and the context last read from it.
+struct SourceSlot {
+    path: PathBuf,
+    /// The context extracted from the file as it was at `(modified, len)`;
+    /// reused while the file's metadata is unchanged, so a request costs a
+    /// `stat`, not a read and a parse.
+    cached: Option<(Option<std::time::SystemTime>, u64, Rc<SourceContext>)>,
 }
 
 impl Server {
     /// The explicit source context for the document at `uri`, if one was
-    /// set and still reads. Re-read per request so edits to the source file
-    /// show up; the provider's tree cache makes an unchanged file free.
-    fn source_context(&mut self, uri: &Uri) -> Option<SourceContext> {
-        let path = self.sources.get(uri)?.clone();
+    /// set and still reads. Edits to the source file show up on the next
+    /// request (its mtime/size changed); an unchanged file is served from
+    /// the slot's cache.
+    fn source_context(&mut self, uri: &Uri) -> Option<Rc<SourceContext>> {
+        let slot = self.sources.get(uri)?;
+        let path = slot.path.clone();
+        let meta = std::fs::metadata(&path).ok()?;
+        let stamp = (meta.modified().ok(), meta.len());
+        if let Some((modified, len, cached)) = &slot.cached
+            && (*modified, *len) == stamp
+        {
+            return Some(Rc::clone(cached));
+        }
         let text = std::fs::read_to_string(&path).ok()?;
         let language = path
             .extension()
@@ -207,11 +225,15 @@ impl Server {
             language: language.to_owned(),
             text,
         };
-        Some(SourceContext {
+        let context = Rc::new(SourceContext {
             path: path.display().to_string(),
             collections: self.provider.source_collections(&doc),
             vars: codemmet_core::lang::source::variables(language, &path, &doc.text),
-        })
+        });
+        if let Some(slot) = self.sources.get_mut(uri) {
+            slot.cached = Some((stamp.0, stamp.1, Rc::clone(&context)));
+        }
+        Some(context)
     }
 
     /// The engine resolved for the document at `uri` (path-scoped tiers).
@@ -483,7 +505,7 @@ impl Server {
             offset,
             self.completion_mode,
             self.encoding,
-            source.as_ref(),
+            source.as_deref(),
         );
         match serde_json::to_value(items) {
             Ok(value) => Response::new_ok(request.id, value),

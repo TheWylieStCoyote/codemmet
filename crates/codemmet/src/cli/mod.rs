@@ -4,6 +4,20 @@
 //! error, 2 unknown trigger or argument-binding failure, 3 configuration or
 //! environment error. Diagnostics go to stderr only.
 
+/// Write a line to stdout, exiting quietly (status 0) when the reader has
+/// gone away. `println!` panics on a closed pipe, which turns
+/// `codemmet list | head` into a backtrace; a filter that loses its reader
+/// should just stop, like every other Unix tool.
+macro_rules! emit {
+    ($($arg:tt)*) => {{
+        use ::std::io::Write as _;
+        let mut out = ::std::io::stdout().lock();
+        if writeln!(out, $($arg)*).is_err() || out.flush().is_err() {
+            ::std::process::exit(0);
+        }
+    }};
+}
+
 mod capture;
 mod check;
 mod expand;
@@ -244,21 +258,22 @@ fn run_positional(sources: &Sources, file: Option<PathBuf>) -> ExitCode {
 /// binary. Fields unavailable at build time (no git, e.g. a crates.io build)
 /// read `unknown`.
 fn print_version(full: bool) {
-    println!("codemmet {}", env!("CODEMMET_LONG_VERSION"));
+    emit!("codemmet {}", env!("CODEMMET_LONG_VERSION"));
     if !full {
         return;
     }
     let dirty = env!("CODEMMET_GIT_DIRTY");
     let commit = env!("CODEMMET_GIT_COMMIT");
-    match dirty {
-        "dirty" => println!("commit:   {commit} (dirty: uncommitted changes)"),
-        _ => println!("commit:   {commit}"),
+    if dirty == "dirty" {
+        emit!("commit:   {commit} (dirty: uncommitted changes)");
+    } else {
+        emit!("commit:   {commit}");
     }
-    println!("branch:   {}", env!("CODEMMET_GIT_BRANCH"));
-    println!("profile:  {}", env!("CODEMMET_BUILD_PROFILE"));
-    println!("target:   {}", env!("CODEMMET_BUILD_TARGET"));
-    println!("rustc:    {}", env!("CODEMMET_RUSTC"));
-    println!("features: {}", env!("CODEMMET_FEATURES"));
+    emit!("branch:   {}", env!("CODEMMET_GIT_BRANCH"));
+    emit!("profile:  {}", env!("CODEMMET_BUILD_PROFILE"));
+    emit!("target:   {}", env!("CODEMMET_BUILD_TARGET"));
+    emit!("rustc:    {}", env!("CODEMMET_RUSTC"));
+    emit!("features: {}", env!("CODEMMET_FEATURES"));
 }
 
 /// Read an explicit `--source` file: its collections (functions, types,

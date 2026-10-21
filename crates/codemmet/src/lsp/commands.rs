@@ -298,6 +298,7 @@ pub fn context(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, 
     if let Some(source) = &source {
         source.apply(&mut ctx);
     }
+    let source_path = source.as_ref().map(|s| s.path.clone());
 
     let scopes: Vec<&str> = ctx.scopes.iter().map(|scope| scope_name(*scope)).collect();
     let collections: Vec<serde_json::Value> = ctx
@@ -317,7 +318,7 @@ pub fn context(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, 
         "scopes": scopes,
         "inStringOrComment": ctx.in_string_or_comment,
         "collections": collections,
-        "source": source.as_ref().map(|s| s.path.as_str()),
+        "source": source_path,
         "vars": ctx.vars,
     }))
 }
@@ -359,7 +360,9 @@ pub fn set_source(
             path.display()
         )));
     }
-    server.sources.insert(args.uri.clone(), path);
+    server
+        .sources
+        .insert(args.uri.clone(), super::SourceSlot { path, cached: None });
     let source = server.source_context(&args.uri).ok_or_else(|| {
         CommandError(format!(
             "cannot read collections from `{raw}` (unsupported language?)"

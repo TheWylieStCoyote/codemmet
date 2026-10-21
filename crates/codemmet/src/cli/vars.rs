@@ -64,7 +64,7 @@ pub fn run(args: &VarsArgs) -> ExitCode {
             "path": args.file.display().to_string(),
             "collections": items,
         });
-        println!("{value}");
+        emit!("{value}");
     } else {
         print_text(&collections);
     }
@@ -93,16 +93,16 @@ fn collection_json(name: &str, collection: &Collection) -> serde_json::Value {
 /// members as `key=value` pairs (the redundant `name` member omitted).
 fn print_text(collections: &std::collections::BTreeMap<String, Collection>) {
     if collections.is_empty() {
-        println!("(no collections)");
+        emit!("(no collections)");
         return;
     }
     let mut first = true;
     for (name, collection) in collections {
         if !first {
-            println!();
+            emit!();
         }
         first = false;
-        println!("{name}:");
+        emit!("{name}:");
         let width = collection
             .items
             .iter()
@@ -117,9 +117,9 @@ fn print_text(collections: &std::collections::BTreeMap<String, Collection>) {
                 .map(|(key, value)| format!("{key}={value:?}"))
                 .collect();
             if members.is_empty() {
-                println!("  {}", item.value);
+                emit!("  {}", item.value);
             } else {
-                println!("  {:<width$}  {}", item.value, members.join(" "));
+                emit!("  {:<width$}  {}", item.value, members.join(" "));
             }
         }
     }

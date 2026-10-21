@@ -195,9 +195,9 @@ fn emit(expansion: &Expansion, language: &str, json: bool) -> ExitCode {
             "is_snippet": expansion.is_snippet,
             "requires": requires,
         });
-        println!("{value}");
+        emit!("{value}");
     } else {
-        println!("{}", expansion.body);
+        emit!("{}", expansion.body);
     }
     ExitCode::SUCCESS
 }

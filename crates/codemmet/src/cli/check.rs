@@ -18,11 +18,11 @@ pub fn run(sources: &Sources) -> ExitCode {
     if labeled.len() <= 1 {
         match sources.user_dir() {
             None => {
-                println!("no user snippets directory configured; builtins only");
+                emit!("no user snippets directory configured; builtins only");
                 return ExitCode::SUCCESS;
             }
             Some(dir) if !dir.exists() => {
-                println!("no user snippets at {}", dir.display());
+                emit!("no user snippets at {}", dir.display());
                 return ExitCode::SUCCESS;
             }
             Some(_) => {}
@@ -38,10 +38,10 @@ pub fn run(sources: &Sources) -> ExitCode {
             warn_unsupported_requires(&registry);
             let languages = registry.languages().count();
             let triggers: usize = registry.languages().map(|lang| lang.set.len()).sum();
-            println!("ok: {languages} languages, {triggers} triggers");
+            emit!("ok: {languages} languages, {triggers} triggers");
             for (label, dir) in &labeled {
                 if dir.exists() {
-                    println!("  {label} snippets: {}", dir.display());
+                    emit!("  {label} snippets: {}", dir.display());
                 }
             }
             ExitCode::SUCCESS

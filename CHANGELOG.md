@@ -47,6 +47,21 @@ follows [Semantic Versioning](https://semver.org/).
   end-to-end test (`tests/nvim/source.lua`) covering `:CodemmetSource`,
   `codemmet.context`, and expansion in a test buffer.
 
+### Fixed
+
+- **Closed pipes no longer panic.** `codemmet list | head` (and every other
+  subcommand writing to stdout) used to end with a "failed printing to
+  stdout: Broken pipe" backtrace once the reader closed; the CLI now exits
+  quietly with status 0, like other filters.
+- **Repeat filter values are one operator only.** `?vis==` and `?vis=~x`
+  are rejected instead of comparing against `=`.
+
+### Changed
+
+- **The LSP caches an explicit source file** by mtime and size, so a request
+  against an unchanged `codemmet.setSource` file costs a `stat`, not a read
+  and a parse; edits to the source still show up on the next request.
+
 ## [0.4.1] - 2026-07-10
 
 ### Fixed
