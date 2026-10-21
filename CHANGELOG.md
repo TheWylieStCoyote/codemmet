@@ -48,6 +48,14 @@ follows [Semantic Versioning](https://semver.org/).
   `*@outer.params`, e.g. `tfn*@src.fns>let:${value}*@outer.params`. A
   parameterless function yields zero inner copies. `codemmet vars` and
   `codemmet.context` show sub-collections.
+- **Item-conditional variants.** `[[snippets.<trigger>.variants]]` may carry
+  `when = "<predicates>"` (the repeat-filter grammar) instead of, or as well
+  as, `context`: the body is chosen per data-driven copy by the item. The
+  builtin `tmeth` triggers use it — an associated function renders
+  `Type::name(..)`, a constructor constructs, an instance method calls on a
+  built `subject` — so `tmeth*@src.Type.methods` now covers statics and
+  constructors without `?all` producing wrong calls. `codemmet.list`'s
+  `activeContext` reports scope variants only.
 - **Docs and tests.** A tutorial chapter ("Generating tests from a file")
   with the exact outputs, the Neovim flow in the editor guide, and a headless
   end-to-end test (`tests/nvim/source.lua`) covering `:CodemmetSource`,

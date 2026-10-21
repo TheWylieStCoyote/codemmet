@@ -986,10 +986,9 @@ func TestPointLength(t *testing.T) {
 ```
 
 One test per method of `Point` (`src.Point.methods`; `src.methods` is every
-type's methods with an `owner` member). The default filter keeps public
-instance methods — constructors, statics are skipped — so the
-constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
-lifts the filter.
+type's methods with an `owner` member). Go has no statics or constructors, so
+every exported method gets the same body; `tmeth*@src.Point.methods?all`
+includes unexported ones.
 
 ### `todo`
 

@@ -346,16 +346,6 @@ impl Composer<'_> {
         if let Some(composite) = &snippet.composite {
             return self.expand_composite(node, snippet, composite, remainder, scope, subject);
         }
-        let variant = active_variant(snippet, scope, self.raw_node_kinds);
-        let template = variant.map_or(&snippet.template, |v| &v.template);
-        // Effective requires: a selected variant that *declares* `requires`
-        // (even empty) replaces the snippet-level list — mirroring how the
-        // variant's body replaces the default body; absent inherits.
-        self.push_requires(
-            variant
-                .and_then(|v| v.requires.as_deref())
-                .unwrap_or(&snippet.requires),
-        );
         // How the per-copy data-driven item reaches this node's parameters:
         //   * an explicit `${value}` argument (`fn:${value}*@Meth`), resolved
         //     per copy; or
@@ -365,14 +355,11 @@ impl Composer<'_> {
         //     repeating `${value}`. A body that uses `${value}` (arm/field/
         //     variant) already consumes the item, so it is left alone.
         // When neither applies the binding is item-independent (bound once).
+        // The body itself is chosen per copy (an item-conditional `when`
+        // variant may fire for some items only), so the auto-bind decision
+        // is made per copy too, below.
         let value_arg = node.args.iter().any(|a| arg_is_item_token(a));
         let base = bind_args(snippet, &node.args, remainder)?;
-        let auto_bind = (!value_arg && !template_uses_value(template))
-            .then(|| {
-                base.iter()
-                    .position(|(_, b)| matches!(b, Binding::Free { .. }))
-            })
-            .flatten();
         // Children live in the snippet's declared scope; a scope-less
         // snippet passes its own effective scope through unchanged.
         let child_scope = snippet
@@ -399,6 +386,25 @@ impl Composer<'_> {
         for (copy, item) in items.iter().enumerate() {
             // The repetition index is 1-based (`${i}` renders 1, 2, …).
             let index = u32::try_from(copy + 1).unwrap_or(u32::MAX);
+            // The body for this copy: the first variant whose scope and/or
+            // item predicates hold, else the default template.
+            let variant = active_variant(snippet, scope, self.raw_node_kinds, item.as_ref());
+            let template = variant.map_or(&snippet.template, |v| &v.template);
+            // Effective requires: a selected variant that *declares*
+            // `requires` (even empty) replaces the snippet-level list —
+            // mirroring how the variant's body replaces the default body;
+            // absent inherits.
+            self.push_requires(
+                variant
+                    .and_then(|v| v.requires.as_deref())
+                    .unwrap_or(&snippet.requires),
+            );
+            let auto_bind = (!value_arg && !template_uses_value(template))
+                .then(|| {
+                    base.iter()
+                        .position(|(_, b)| matches!(b, Binding::Free { .. }))
+                })
+                .flatten();
             let bindings: Cow<[(String, Binding)]> = if value_arg {
                 let resolved = resolve_item_args(&node.args, item.as_ref(), outer.as_ref())
                     .map_err(|message| RenderError::ArgBinding {
@@ -805,12 +811,14 @@ fn sub_repeat_index(text: &str, index: u32) -> String {
     }
 }
 
-/// The variant of `snippet` that fires in `scope`, or `None` when the
-/// default template applies (and, with it, the snippet-level `requires`).
+/// The variant of `snippet` that fires in `scope` for `item`, or `None` when
+/// the default template applies (and, with it, the snippet-level `requires`).
 ///
-/// The first matching variant wins; a variant matches when its context is
-/// the scope's normalized name, or when it is `ts:<kind>` and `<kind>` is
-/// one of the buffer's raw node kinds. Public so listings (the LSP
+/// The first matching variant wins. A variant's `context` matches when it is
+/// the scope's normalized name, or `ts:<kind>` with `<kind>` among the
+/// buffer's raw node kinds; its `when` predicates match when there is a
+/// data-driven `item` satisfying all of them (never without an item). A
+/// variant declaring both needs both. Public so listings (the LSP
 /// `codemmet.list` command) report the variant the renderer would pick
 /// without duplicating the rule. Selection changes only the template and
 /// requires — params and description always come from the snippet itself.
@@ -819,12 +827,18 @@ pub fn active_variant<'s>(
     snippet: &'s CompiledSnippet,
     scope: Scope,
     raw_node_kinds: &[String],
+    item: Option<&Item>,
 ) -> Option<&'s CompiledVariant> {
     snippet.variants.iter().find(|variant| {
-        variant.context.strip_prefix("ts:").map_or_else(
-            || parse_scope_name(&variant.context) == Some(scope),
-            |kind| raw_node_kinds.iter().any(|k| k == kind),
-        )
+        let scope_ok = variant.context.as_deref().is_none_or(|context| {
+            context.strip_prefix("ts:").map_or_else(
+                || parse_scope_name(context) == Some(scope),
+                |kind| raw_node_kinds.iter().any(|k| k == kind),
+            )
+        });
+        let item_ok = variant.when.is_empty()
+            || item.is_some_and(|it| variant.when.iter().all(|p| p.matches(it)));
+        scope_ok && item_ok
     })
 }
 
@@ -1671,6 +1685,19 @@ mod tests {
         snippet
     }
 
+    /// Attach an item-conditional (`when`) variant to a fixture snippet.
+    fn with_when(mut snippet: CompiledSnippet, when: &str, body: &str) -> CompiledSnippet {
+        snippet.variants.push(CompiledVariant {
+            context: None,
+            when: Filter::parse(when)
+                .expect("fixture when should parse")
+                .predicates,
+            template: parse_template(body).expect("fixture variant body should parse"),
+            requires: None,
+        });
+        snippet
+    }
+
     /// Build a composite fixture snippet.
     fn composite(
         trigger: &str,
@@ -1701,7 +1728,8 @@ mod tests {
     /// Attach a context variant to a fixture snippet.
     fn with_variant(mut snippet: CompiledSnippet, context: &str, body: &str) -> CompiledSnippet {
         snippet.variants.push(CompiledVariant {
-            context: context.to_owned(),
+            context: Some(context.to_owned()),
+            when: Vec::new(),
             template: parse_template(body).expect("fixture variant should parse"),
             requires: None,
         });
@@ -1719,10 +1747,15 @@ mod tests {
     /// The plain (non-composite) snippet fixtures.
     fn base_fixtures() -> Vec<CompiledSnippet> {
         vec![
-            // A test-like trigger with a default filter (public only).
-            with_filter(
-                snip("tfn", vec![], "fn test_${value}() { ${value}(); }\n"),
-                "vis=public",
+            // A test-like trigger with a default filter (public only) and an
+            // item-conditional body for static items.
+            with_when(
+                with_filter(
+                    snip("tfn", vec![], "fn test_${value}() { ${value}(); }\n"),
+                    "vis=public",
+                ),
+                "static",
+                "fn test_${value}() { T::${value}(); }\n",
             ),
             // Source-file variables: `${src.module}` with and without a
             // default, plus a transform.
@@ -1939,6 +1972,31 @@ mod tests {
         );
         assert_eq!(names("tfn*@src.fns?all?async"), ["fn test_fetch"]);
         assert_eq!(names("tfn*@src.fns?value~he*"), ["fn test_helper"]);
+    }
+
+    /// A `when` variant fires per copy for the items that satisfy it; other
+    /// copies and the bare trigger keep the default body.
+    #[test]
+    fn when_variants_select_per_item() {
+        let mut ctx = fns_ctx();
+        let mut origin = Item::new("origin");
+        origin
+            .members
+            .insert("static".to_owned(), "static".to_owned());
+        origin.members.insert("vis".to_owned(), "public".to_owned());
+        ctx.collections
+            .get_mut("src.fns")
+            .expect("fixture collection")
+            .items
+            .push(origin);
+        let out = expand("tfn*@src.fns", &ctx, TabstopMode::Strip);
+        assert_eq!(
+            out.body,
+            "fn test_area() { area(); }\nfn test_fetch() { fetch(); }\nfn test_origin() { T::origin(); }"
+        );
+        // Bare trigger: no item, so the `when` variant never fires.
+        let out = expand("tfn", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "fn test_() { (); }");
     }
 
     /// `*@outer.params` nests over the enclosing item's sub-collection.
@@ -3094,7 +3152,8 @@ mod tests {
             &["std::fmt::Display"],
         );
         varied.variants.push(CompiledVariant {
-            context: "type-body".to_owned(),
+            context: Some("type-body".to_owned()),
+            when: Vec::new(),
             template: parse_template("fmt$0\n").expect("fixture variant should parse"),
             requires: Some(Vec::new()),
         });

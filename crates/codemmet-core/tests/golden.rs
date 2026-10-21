@@ -274,7 +274,8 @@ fn ts_variant_fires_on_raw_node_kind() {
         template: parse_template("println!(\"$0\");\n").expect("fixture body should parse"),
         scope: None,
         variants: vec![CompiledVariant {
-            context: "ts:impl_item".to_owned(),
+            context: Some("ts:impl_item".to_owned()),
+            when: Vec::new(),
             template: parse_template("self.log(\"$0\");\n").expect("fixture body should parse"),
             requires: None,
         }],

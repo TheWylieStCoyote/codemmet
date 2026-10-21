@@ -348,12 +348,29 @@ test("${value} works", () => {
 '''
 
 [snippets.tmeth]
-description = "Jest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods)"
-filter = "vis=public?!static?!ctor?!async"
+description = "Jest test calling a method (data-driven: tmeth*@src.Type.methods; statics via the class, the constructor constructs)"
+filter = "vis=public?!async"
 scope = "fn-body"
 body = '''
 test("${value.owner}.${value} works", () => {
 	const subject = new ${value.owner}($1);
 	expect(subject.${value}(${value.args})).toBe(${2:expected});
+});
+'''
+
+[[snippets.tmeth.variants]]
+when = "ctor"
+body = '''
+test("${value.owner} constructs", () => {
+	const subject = new ${value.owner}(${value.args});
+	expect(subject).toBeDefined();
+});
+'''
+
+[[snippets.tmeth.variants]]
+when = "static"
+body = '''
+test("${value.owner}.${value} works", () => {
+	expect(${value.owner}.${value}(${value.args})).toBe(${1:expected});
 });
 '''

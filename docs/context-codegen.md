@@ -53,6 +53,13 @@ The normalized scopes codemmet recognizes are `type-body`, `fn-body`, `loop`,
 on a raw tree-sitter node kind) to add variants. See
 [custom snippets](snippets.md) for how to declare them.
 
+A variant can also be keyed on the **item** of a data-driven copy
+(`when = "static"`, `when = "!receiver=self"`), so one repeat renders
+differently shaped bodies as the collection demands — the builtin `tmeth`
+calls `Point::new(..)` on the type for an associated function and
+`subject.len(..)` on a constructed value for a method. See [item-conditional
+variants](snippets.md#item-conditional-variants-when).
+
 ## Data-driven repeats
 
 A repeat written `*@name` draws from a **collection** — an ordered list of

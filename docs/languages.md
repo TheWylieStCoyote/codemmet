@@ -88,7 +88,7 @@ id `rust` | extensions: `rs` | LSP ids: `rust` | default indent: 4 spaces
 | [`struct`](examples/rust.md#struct) | struct definition |
 | [`test`](examples/rust.md#test) | test function |
 | [`tfn`](examples/rust.md#tfn) | test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
-| [`tmeth`](examples/rust.md#tmeth) | test calling a method on a constructed value (data-driven: tmeth*@src.Type.methods) |
+| [`tmeth`](examples/rust.md#tmeth) | test calling a method (data-driven: tmeth*@src.Type.methods; statics via Type::name) |
 | [`tmod`](examples/rust.md#tmod) | test module with cfg(test) |
 | [`todo`](examples/rust.md#todo) | TODO comment |
 | [`trait`](examples/rust.md#trait) | trait definition |
@@ -134,7 +134,7 @@ id `python` | extensions: `py` | LSP ids: `python` | default indent: 4 spaces
 | [`str`](examples/python.md#str) | __str__ dunder method |
 | [`test`](examples/python.md#test) | test function (pytest style) |
 | [`tfn`](examples/python.md#tfn) | pytest test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
-| [`tmeth`](examples/python.md#tmeth) | pytest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods) |
+| [`tmeth`](examples/python.md#tmeth) | pytest test calling a method (data-driven: tmeth*@src.Type.methods; classmethods/statics via the class, __init__ constructs) |
 | [`todo`](examples/python.md#todo) | TODO comment |
 | [`try`](examples/python.md#try) | try/except block |
 | [`while`](examples/python.md#while) | while loop |
@@ -234,7 +234,7 @@ example, `enum` and `struct` override C's typedef forms.
 | [`switch`](examples/cpp.md#switch) | switch statement |
 | [`td`](examples/cpp.md#td) | typedef declaration |
 | [`tfn`](examples/cpp.md#tfn) | GoogleTest TEST calling a function (data-driven: tfn*@src.fns, public by default) |
-| [`tmeth`](examples/cpp.md#tmeth) | GoogleTest TEST calling a method on a constructed object (data-driven: tmeth*@src.Type.methods) |
+| [`tmeth`](examples/cpp.md#tmeth) | GoogleTest TEST calling a method (data-driven: tmeth*@src.Type.methods; statics via Type::, constructors construct) |
 | [`todo`](examples/cpp.md#todo) | TODO comment |
 | [`tpl`](examples/cpp.md#tpl) | template parameter list (prefix for a declaration) |
 | [`try`](examples/cpp.md#try) | try/catch block |
@@ -281,7 +281,7 @@ LSP ids: `javascript`, `javascriptreact` | default indent: 2 spaces
 | [`switch`](examples/javascript.md#switch) | switch statement |
 | [`test`](examples/javascript.md#test) | test case (jest/vitest style) |
 | [`tfn`](examples/javascript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
-| [`tmeth`](examples/javascript.md#tmeth) | Jest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods) |
+| [`tmeth`](examples/javascript.md#tmeth) | Jest test calling a method (data-driven: tmeth*@src.Type.methods; statics via the class, the constructor constructs) |
 | [`todo`](examples/javascript.md#todo) | TODO comment |
 | [`try`](examples/javascript.md#try) | try/catch block |
 | [`while`](examples/javascript.md#while) | while loop |
@@ -333,7 +333,7 @@ TypeScript starts from the JavaScript pack. Several triggers such as `afn` and
 | [`switch`](examples/typescript.md#switch) | switch statement |
 | [`test`](examples/typescript.md#test) | test case (jest/vitest style) |
 | [`tfn`](examples/typescript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
-| [`tmeth`](examples/typescript.md#tmeth) | Jest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods) |
+| [`tmeth`](examples/typescript.md#tmeth) | Jest test calling a method (data-driven: tmeth*@src.Type.methods; statics via the class, the constructor constructs) |
 | [`todo`](examples/typescript.md#todo) | TODO comment |
 | [`try`](examples/typescript.md#try) | try/catch block |
 | [`typ`](examples/typescript.md#typ) | type alias |

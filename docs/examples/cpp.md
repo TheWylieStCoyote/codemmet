@@ -828,9 +828,10 @@ TEST(PointTest, Length) {
 
 One test per method of `Point` (`src.Point.methods`; `src.methods` is every
 type's methods with an `owner` member). The default filter keeps public
-instance methods — constructors, statics are skipped — so the
-constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
-lifts the filter.
+members. The constructor takes the `when = "ctor"` **variant** (construct a
+`subject`), a `static` member the `when = "static"` one (`Point::origin(..)`
+on the class); instance methods take the default body. `?all` adds protected
+and private members.
 
 ### `todo`
 

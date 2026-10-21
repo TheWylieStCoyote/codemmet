@@ -275,7 +275,7 @@ depend on earlier ones.
    (`resolve_items`), snippet-level `filter` with `?all`, docs.
 4. **Test packs.** *(done)* `tfn`/`tmeth` per language with default filters; examples
    in `docs/examples/*`.
-5. **Per-item variants** — only when a template forces it (decision 7).
+5. **Per-item variants** *(done)* — `[[variants]] when = "static"`: a body chosen by the copy's item, combinable with `context`; `tmeth` uses it for statics and constructors in every pack.
 6. **"Add missing tests" code action** — a `fill_targets` shape that parses
    the test file too and offers one edit per untested function. Mirrors the
    match-arm fill. Optional.

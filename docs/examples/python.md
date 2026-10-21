@@ -838,10 +838,11 @@ def test_point_length():
 ```
 
 One test per method of `Point` (`src.Point.methods`; `src.methods` is every
-type's methods with an `owner` member). The default filter keeps public
-instance methods — constructors, statics, and async methods are skipped — so the
-constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
-lifts the filter.
+type's methods with an `owner` member). The default filter keeps public,
+non-async methods. `__init__` takes the `when = "ctor"` **variant** (construct
+and assert the instance), a staticmethod or classmethod (no `self` receiver)
+the `when = "!receiver=self"` one (`Point.origin(..)` on the class); instance
+methods take the default body. `?all` lifts the filter.
 
 ### `todo`
 

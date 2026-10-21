@@ -498,8 +498,8 @@ fn ${value|snake}_works() {
 '''
 
 [snippets.tmeth]
-description = "test calling a method on a constructed value (data-driven: tmeth*@src.Type.methods)"
-filter = "vis=public?!static?!ctor?!async?!trait"
+description = "test calling a method (data-driven: tmeth*@src.Type.methods; statics via Type::name)"
+filter = "vis=public?!async?!trait"
 scope = "fn-body"
 body = '''
 #[test]
@@ -507,5 +507,17 @@ fn ${value.owner|snake}_${value|snake}_works() {
 	let subject = ${value.owner}::new($1);
 	let result = subject.${value}(${value.args});
 	assert_eq!(result, ${2:expected});
+}
+'''
+
+# An associated function (no receiver — constructors included) is called on
+# the type, not on a constructed value.
+[[snippets.tmeth.variants]]
+when = "static"
+body = '''
+#[test]
+fn ${value.owner|snake}_${value|snake}_works() {
+	let result = ${value.owner}::${value}(${value.args});
+	assert_eq!(result, ${1:expected});
 }
 '''

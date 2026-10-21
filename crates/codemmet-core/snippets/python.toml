@@ -397,12 +397,30 @@ def test_${value|snake}():
 '''
 
 [snippets.tmeth]
-description = "pytest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods)"
-filter = "receiver=self?vis=public?!ctor?!async"
+description = "pytest test calling a method (data-driven: tmeth*@src.Type.methods; classmethods/statics via the class, __init__ constructs)"
+filter = "vis=public?!async"
 scope = "fn-body"
 body = '''
 def test_${value.owner|snake}_${value|snake}():
 	subject = ${value.owner}($1)
 	result = subject.${value}(${value.args})
 	assert result == ${2:expected}
+'''
+
+# `__init__` is exercised by constructing; a staticmethod or classmethod (no
+# `self` receiver) is called on the class.
+[[snippets.tmeth.variants]]
+when = "ctor"
+body = '''
+def test_${value.owner|snake}_init():
+	subject = ${value.owner}(${value.args})
+	assert subject is not None
+'''
+
+[[snippets.tmeth.variants]]
+when = "!receiver=self"
+body = '''
+def test_${value.owner|snake}_${value|snake}():
+	result = ${value.owner}.${value}(${value.args})
+	assert result == ${1:expected}
 '''

@@ -159,12 +159,21 @@ pub enum ParamKind {
     Str,
 }
 
-/// A `[[snippets.<trigger>.variants]]` entry (context-aware body, M3).
+/// A `[[snippets.<trigger>.variants]]` entry: a body chosen by the
+/// surrounding **scope** (`context`), by the current data-driven **item**
+/// (`when`), or both. At least one of the two must be given.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VariantDef {
     /// Normalized scope name (e.g. `"type-body"`) or raw node kind as `"ts:<kind>"`.
-    pub context: String,
+    #[serde(default)]
+    pub context: Option<String>,
+    /// An item predicate chain in the repeat-filter grammar (`"static"`,
+    /// `"!receiver=self"`, `"ctor?vis=public"`): the variant fires for a
+    /// data-driven copy whose item satisfies every predicate. Never fires
+    /// without an item (a bare trigger uses the default body).
+    #[serde(default)]
+    pub when: Option<String>,
     /// The variant's template body.
     pub body: String,
     /// Import requirements for this variant. When the variant is selected and

@@ -247,7 +247,8 @@ Field by field:
 | `params[].default` | param entry | Placeholder shown when no argument is supplied. |
 | `body` | `[snippets.<trigger>]` | Required unless `disabled` or `expands`. The template. |
 | `scope` | `[snippets.<trigger>]` | Optional. The scope `${child}` content lives in. |
-| `variants` | `[[snippets.<trigger>.variants]]` | Optional context-conditional bodies. |
+| `variants` | `[[snippets.<trigger>.variants]]` | Optional conditional bodies, each with a `context` (scope), a `when` (item predicate chain), or both. |
+| `variants[].when` | variant entry | Item predicates in the [repeat-filter grammar](syntax.md#repeat-filters-predicate) (`"static"`, `"!receiver=self"`): the body for data-driven copies whose item satisfies them. See [item-conditional variants](#item-conditional-variants-when). |
 | `requires` | `[snippets.<trigger>]` (and variant entries) | Optional. [Import requirements](#import-requirements-requires): per-language specs whose imports editors insert alongside the expansion. |
 | `filter` | `[snippets.<trigger>]` | Optional. The default [repeat filter](syntax.md#repeat-filters-predicate) for data-driven repeats of this trigger, e.g. `"vis=public"` or `"vis=public?!async"` (predicates separated by `?` or spaces). Applies when the abbreviation writes no `?…` chain; a written chain replaces it and `?all` clears it. `all` itself is not a valid default. |
 | `disabled` | `[snippets.<trigger>]` | In a user pack, removes the builtin of this name. |
@@ -525,6 +526,52 @@ impl Point {
 Variants are matched top to bottom; the first whose `context` matches the
 surrounding scope wins, otherwise the top-level `body` is used. A `context` may
 also be `ts:<node_kind>` to match a raw tree-sitter node kind directly.
+
+### Item-conditional variants (`when`)
+
+A variant can also be chosen by the **data-driven item** a copy renders for,
+with `when`: a predicate chain in the [repeat-filter
+grammar](syntax.md#repeat-filters-predicate). The builtin `tmeth` uses it to
+call an associated function on the type instead of on a constructed value:
+
+```toml
+[snippets.tmeth]
+filter = "vis=public?!async?!trait"
+body = '''
+#[test]
+fn ${value.owner|snake}_${value|snake}_works() {
+	let subject = ${value.owner}::new($1);
+	let result = subject.${value}(${value.args});
+	assert_eq!(result, ${2:expected});
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "static"
+body = '''
+#[test]
+fn ${value.owner|snake}_${value|snake}_works() {
+	let result = ${value.owner}::${value}(${value.args});
+	assert_eq!(result, ${1:expected});
+}
+'''
+```
+
+Over `src.Point.methods`, the `new` copy (a `static` item) takes the variant
+and `len` (an instance method) takes the default body. The rules:
+
+- A `when` variant fires only for a copy that **has** an item; the bare
+  trigger and literal `*n` repeats always use the default body (or a
+  `context` variant).
+- `when` and `context` may be combined; both must then hold. At least one is
+  required.
+- Predicates AND together (`when = "!receiver=self?vis=public"`); `all` is
+  not allowed here (it is the abbreviation-side marker for "no default
+  filter").
+- Variants are tried top to bottom, so put the most specific first — the
+  Python `tmeth` lists `when = "ctor"` before `when = "!receiver=self"`.
+- The variant's `requires` follows the usual rule: declared, it replaces the
+  snippet-level list; absent, it inherits.
 
 ## Composite snippets
 

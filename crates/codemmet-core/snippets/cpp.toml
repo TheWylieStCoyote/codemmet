@@ -262,13 +262,30 @@ TEST(${value|pascal}Test, Works) {
 '''
 
 [snippets.tmeth]
-description = "GoogleTest TEST calling a method on a constructed object (data-driven: tmeth*@src.Type.methods)"
-filter = "vis=public?!static?!ctor"
+description = "GoogleTest TEST calling a method (data-driven: tmeth*@src.Type.methods; statics via Type::, constructors construct)"
+filter = "vis=public"
 requires = ["<gtest/gtest.h>"]
 scope = "fn-body"
 body = '''
 TEST(${value.owner}Test, ${value|pascal}) {
 	${value.owner} subject$1;
 	EXPECT_EQ(subject.${value}(${value.args}), ${2:expected});
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "ctor"
+body = '''
+TEST(${value.owner}Test, Constructs) {
+	${value.owner} subject(${value.args});
+	$0
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "static"
+body = '''
+TEST(${value.owner}Test, ${value|pascal}) {
+	EXPECT_EQ(${value.owner}::${value}(${value.args}), ${1:expected});
 }
 '''

@@ -949,10 +949,11 @@ fn point_len_works() {
 ```
 
 One test per method of `Point` (`src.Point.methods`; `src.methods` is every
-type's methods with an `owner` member). The default filter keeps public
-instance methods — constructors, statics, async methods, and trait impls are skipped — so the
-constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
-lifts the filter.
+type's methods with an `owner` member). The default filter keeps public,
+non-async methods that are not trait impls. An associated function (no
+receiver — `new` here) takes the snippet's `when = "static"` **variant**,
+which calls `Point::new(..)` on the type instead of on a constructed value;
+instance methods take the default body. `?all` lifts the filter.
 
 ### `tmod`
 

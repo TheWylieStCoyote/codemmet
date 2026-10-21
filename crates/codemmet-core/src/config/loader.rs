@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::abbr::{Filter, Predicate};
-use crate::config::schema::{FileDef, OnExists, ParamDef, SnippetDef, SnippetFile};
+use crate::config::schema::{FileDef, OnExists, ParamDef, SnippetDef, SnippetFile, VariantDef};
 use crate::context::Scope;
 use crate::snippet::ir::{Span, Template};
 use crate::snippet::template::{TemplateError, parse_template};
@@ -106,8 +106,12 @@ pub struct CompiledComposite {
 /// A compiled context-conditional variant.
 #[derive(Debug, Clone)]
 pub struct CompiledVariant {
-    /// Normalized scope name or `ts:`-prefixed raw node kind.
-    pub context: String,
+    /// Normalized scope name or `ts:`-prefixed raw node kind, when the
+    /// variant is scope-conditional.
+    pub context: Option<String>,
+    /// Item predicates, when the variant is item-conditional (`when`); all
+    /// must hold for the current data-driven item.
+    pub when: Vec<Predicate>,
     /// The variant's template.
     pub template: Template,
     /// Import requirement specs. `Some` (even empty) **replaces** the
@@ -557,25 +561,7 @@ fn compile_snippet(
         )));
     }
 
-    let mut variants = Vec::with_capacity(def.variants.len());
-    for variant in &def.variants {
-        let is_ts = variant.context.starts_with("ts:");
-        if !is_ts && parse_scope_name(&variant.context).is_none() {
-            return Err(invalid(format!(
-                "unknown variant context `{}` (expected a scope name or \
-                 `ts:<node-kind>`)",
-                variant.context
-            )));
-        }
-        if let Some(requires) = &variant.requires {
-            validate_requires(&invalid, language, requires)?;
-        }
-        variants.push(CompiledVariant {
-            context: variant.context.clone(),
-            template: parse_template(&variant.body).map_err(snippet_err)?,
-            requires: variant.requires.clone(),
-        });
-    }
+    let variants = compile_variants(&invalid, &snippet_err, language, &def.variants)?;
 
     let mut declared = BTreeSet::new();
     for param in &def.params {
@@ -617,6 +603,60 @@ fn compile_snippet(
         composite: None,
         multifile: None,
     })
+}
+
+/// Compile a snippet's `[[variants]]`: each needs a valid `context` (scope or
+/// `ts:` kind) and/or a `when` predicate chain (at least one predicate; `all`
+/// is meaningless here), plus a parseable body.
+fn compile_variants(
+    invalid: &impl Fn(String) -> ConfigError,
+    snippet_err: &impl Fn(TemplateError) -> ConfigError,
+    language: &str,
+    defs: &[VariantDef],
+) -> Result<Vec<CompiledVariant>, ConfigError> {
+    let mut variants = Vec::with_capacity(defs.len());
+    for variant in defs {
+        if let Some(context) = &variant.context
+            && !context.starts_with("ts:")
+            && parse_scope_name(context).is_none()
+        {
+            return Err(invalid(format!(
+                "unknown variant context `{context}` (expected a scope name or \
+                 `ts:<node-kind>`)"
+            )));
+        }
+        if variant.context.is_none() && variant.when.is_none() {
+            return Err(invalid(
+                "a variant needs `context` (a scope) and/or `when` (an item predicate)".to_owned(),
+            ));
+        }
+        let when = match &variant.when {
+            Some(spec) => {
+                let filter = Filter::parse(spec)
+                    .map_err(|message| invalid(format!("variant when: {message}")))?;
+                if filter.all || filter.predicates.is_empty() {
+                    return Err(invalid(
+                        "variant when: expected at least one predicate (as in `static`, \
+                         `!receiver=self`)"
+                            .to_owned(),
+                    ));
+                }
+                filter.predicates
+            }
+            None => Vec::new(),
+        };
+        if let Some(requires) = &variant.requires {
+            validate_requires(&invalid, language, requires)?;
+        }
+        variants.push(CompiledVariant {
+            context: variant.context.clone(),
+            when,
+            template: parse_template(&variant.body).map_err(snippet_err)?,
+            requires: variant.requires.clone(),
+        });
+    }
+
+    Ok(variants)
 }
 
 /// Parse a snippet's default `filter` spec. `all` is meaningless as a
@@ -1300,7 +1340,7 @@ mod tests {
         );
         let compiled = set.get("fn").expect("fn should compile");
         assert_eq!(compiled.variants.len(), 1);
-        assert_eq!(compiled.variants[0].context, "type-body");
+        assert_eq!(compiled.variants[0].context.as_deref(), Some("type-body"));
 
         // A variant referencing an undeclared param is rejected.
         let err = compile_err(
@@ -1393,6 +1433,38 @@ mod tests {
     }
 
     #[test]
+    fn when_variants_compile_and_validate() {
+        let set = compile_one(
+            "user",
+            concat!(
+                "[meta]\nlanguage = \"rust\"\n",
+                "[snippets.tm]\nbody = \"a ${value}\"\n",
+                "[[snippets.tm.variants]]\nwhen = \"static\"\nbody = \"b ${value}\"\n",
+                "[[snippets.tm.variants]]\ncontext = \"type-body\"\n",
+                "when = \"!receiver=self?vis=public\"\nbody = \"c ${value}\"\n",
+            ),
+        );
+        let tm = set.get("tm").expect("tm should compile");
+        assert_eq!(tm.variants.len(), 2);
+        assert_eq!(tm.variants[0].context, None);
+        assert_eq!(tm.variants[0].when.len(), 1);
+        assert_eq!(tm.variants[1].context.as_deref(), Some("type-body"));
+        assert_eq!(tm.variants[1].when.len(), 2);
+
+        for (bad, needle) in [
+            ("body = \"x\"", "needs `context`"),
+            ("when = \"all\"\nbody = \"x\"", "at least one predicate"),
+            ("when = \"vis==\"\nbody = \"x\"", "variant when"),
+        ] {
+            let text = format!(
+                "[meta]\nlanguage = \"rust\"\n[snippets.tm]\nbody = \"a\"\n[[snippets.tm.variants]]\n{bad}\n"
+            );
+            let err = compile_err("user", &text);
+            assert!(err.to_string().contains(needle), "{bad}: {err}");
+        }
+    }
+
+    #[test]
     fn ts_variant_context_is_accepted() {
         let set = compile_one(
             "user",
@@ -1404,7 +1476,10 @@ mod tests {
             ),
         );
         let compiled = set.get("fn").expect("fn should compile");
-        assert_eq!(compiled.variants[0].context, "ts:impl_item");
+        assert_eq!(
+            compiled.variants[0].context.as_deref(),
+            Some("ts:impl_item")
+        );
     }
 
     #[test]
