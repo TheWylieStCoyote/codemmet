@@ -10,6 +10,7 @@ mod expand;
 mod list;
 mod render;
 mod scaffold;
+mod vars;
 mod wrap;
 
 use std::ffi::OsString;
@@ -141,6 +142,9 @@ enum Command {
     List(list::ListArgs),
     /// Validate the user snippet override directory.
     Check,
+    /// Print the collections (functions, types, methods, enums, …) a source
+    /// file yields for data-driven repeats.
+    Vars(vars::VarsArgs),
     /// Run the LSP server over stdio.
     Lsp(crate::lsp::LspArgs),
     /// Practice the abbreviation syntax interactively.
@@ -203,6 +207,7 @@ pub fn run() -> ExitCode {
         Some(Command::Scaffold(args)) => scaffold::run(&sources, &args),
         Some(Command::List(args)) => list::run(&sources, &args),
         Some(Command::Check) => check::run(&sources),
+        Some(Command::Vars(args)) => vars::run(&args),
         Some(Command::Lsp(args)) => {
             crate::lsp::run(user_dir.as_deref(), paths_file.as_deref(), &args)
         }

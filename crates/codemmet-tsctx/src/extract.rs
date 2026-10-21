@@ -37,12 +37,26 @@ use std::collections::BTreeMap;
 use codemmet_core::context::{Collection, Item};
 use tree_sitter::Node;
 
-/// Gather every named collection visible at `offset` in `root`.
+/// Gather every named collection visible at `offset` in `root`: the file-wide
+/// definitions plus the list bindings in scope at the cursor.
 pub fn collections(
     language: &str,
     root: Node<'_>,
     text: &str,
     offset: usize,
+) -> BTreeMap<String, Collection> {
+    let mut map = file_collections(language, root, text);
+    add_list_bindings(language, root, text, offset, &mut map);
+    map
+}
+
+/// The file-wide collections `root` defines, independent of any cursor: enum
+/// variants, struct fields, and the `src.*` API-surface collections (see
+/// [`crate::source`]). This is what an explicit `--source` file contributes.
+pub fn file_collections(
+    language: &str,
+    root: Node<'_>,
+    text: &str,
 ) -> BTreeMap<String, Collection> {
     let mut map = BTreeMap::new();
     match language {
@@ -54,7 +68,7 @@ pub fn collections(
         // JavaScript has no enum/struct definitions; only list bindings apply.
         _ => {}
     }
-    add_list_bindings(language, root, text, offset, &mut map);
+    crate::source::definitions(language, root, text, &mut map);
     map
 }
 
@@ -63,18 +77,18 @@ pub fn collections(
 // ---------------------------------------------------------------------------
 
 /// Source text a node spans.
-fn node_text<'a>(node: Node<'_>, text: &'a str) -> &'a str {
+pub fn node_text<'a>(node: Node<'_>, text: &'a str) -> &'a str {
     &text[node.byte_range()]
 }
 
 /// Text of a node's named field, if present.
-fn field_text<'a>(node: Node<'_>, field: &str, text: &'a str) -> Option<&'a str> {
+pub fn field_text<'a>(node: Node<'_>, field: &str, text: &'a str) -> Option<&'a str> {
     node.child_by_field_name(field).map(|c| node_text(c, text))
 }
 
 /// Every named descendant of `root` (inclusive) whose kind is in `kinds`, in
 /// document (pre-)order.
-fn descendants_of<'t>(root: Node<'t>, kinds: &[&str]) -> Vec<Node<'t>> {
+pub fn descendants_of<'t>(root: Node<'t>, kinds: &[&str]) -> Vec<Node<'t>> {
     let mut out = Vec::new();
     collect_descendants(root, kinds, &mut out);
     out
@@ -101,7 +115,7 @@ fn field_children<'t>(node: Node<'t>, field: &str) -> Vec<Node<'t>> {
 
 /// A field's declared type, cleaned for display: a leading `:` (TypeScript's
 /// `type_annotation` includes the colon) and surrounding whitespace stripped.
-fn clean_type(raw: &str) -> String {
+pub fn clean_type(raw: &str) -> String {
     raw.trim().trim_start_matches(':').trim().to_owned()
 }
 

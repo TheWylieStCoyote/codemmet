@@ -388,7 +388,7 @@ fn push_block(buffer: &mut String, indent: &str, body: &str) {
 /// accumulated output feed later lines' collections and scopes — and the
 /// scope-blind null provider otherwise, where only `#repeat`/`--repeat`
 /// collections apply.
-fn default_provider() -> Box<dyn ContextProvider> {
+pub(super) fn default_provider() -> Box<dyn ContextProvider> {
     #[cfg(feature = "tree-sitter")]
     {
         Box::new(codemmet_tsctx::TreeSitterProvider::new())

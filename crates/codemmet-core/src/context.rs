@@ -316,6 +316,17 @@ pub trait ContextProvider {
     fn import_scan(&mut self, _doc: &DocSnapshot) -> Option<ImportScan> {
         None
     }
+
+    /// The file-wide collections `doc` defines — enum variants, struct
+    /// fields, and the `src.*` API-surface collections (functions, types,
+    /// methods) — independent of any cursor. This is what an explicitly named
+    /// source file contributes to an expansion elsewhere (a test file).
+    ///
+    /// Defaults to empty: a provider without syntax awareness has nothing to
+    /// read. The tree-sitter provider implements it per language.
+    fn source_collections(&mut self, _doc: &DocSnapshot) -> BTreeMap<String, Collection> {
+        BTreeMap::new()
+    }
 }
 
 /// Syntax-unaware provider used until tree-sitter support lands (M3).

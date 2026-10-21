@@ -1271,3 +1271,101 @@ fn version_flags_basic_and_full() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// vars: source collections (SOURCE_COLLECTIONS_PLAN.md)
+// ---------------------------------------------------------------------------
+
+/// `vars` infers the language from the extension and prints the `src.*`
+/// collections (functions with their members, types, per-type methods)
+/// alongside the data-shape ones.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn vars_prints_source_collections_for_a_file() {
+    let dir = scratch_dir("vars-text");
+    let file = dir.join("geometry.rs");
+    std::fs::write(
+        &file,
+        "pub struct Point { x: f64 }\nimpl Point {\n    pub fn len(&self) -> f64 { 0.0 }\n}\npub fn area(w: f64, h: f64) -> f64 { w * h }\nfn helper() {}\n",
+    )
+    .expect("fixture should be writable");
+    let out = run("vars-text", &["vars", file.to_str().expect("UTF-8 path")]);
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("src.fns:\n"), "stdout: {text}");
+    assert!(
+        text.contains("area    args=\"w, h\" params=\"w: f64, h: f64\" ret=\"f64\" vis=\"public\""),
+        "stdout: {text}"
+    );
+    assert!(text.contains("helper  vis=\"private\""), "stdout: {text}");
+    assert!(
+        text.contains("src.Point.methods:\n  len  "),
+        "stdout: {text}"
+    );
+    assert!(
+        text.contains("src.types:\n  Point  kind=\"struct\""),
+        "stdout: {text}"
+    );
+    // The struct's fields still come along as the `Point` collection.
+    assert!(text.contains("Point:\n  x  type=\"f64\""), "stdout: {text}");
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn vars_json_carries_members_and_honors_lang() {
+    let dir = scratch_dir("vars-json");
+    let file = dir.join("geometry.txt");
+    std::fs::write(&file, "def area(w, h):\n    return w * h\n")
+        .expect("fixture should be writable");
+    let out = run(
+        "vars-json",
+        &[
+            "vars",
+            "--lang",
+            "python",
+            "--json",
+            file.to_str().expect("UTF-8 path"),
+        ],
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let value: serde_json::Value =
+        serde_json::from_str(stdout(&out).trim()).expect("stdout is JSON");
+    assert_eq!(value["language"], "python");
+    let fns = value["collections"]
+        .as_array()
+        .expect("collections is an array")
+        .iter()
+        .find(|c| c["name"] == "src.fns")
+        .expect("src.fns present");
+    assert_eq!(fns["items"][0]["value"], "area");
+    assert_eq!(fns["items"][0]["members"]["args"], "w, h");
+    assert_eq!(fns["items"][0]["members"]["vis"], "public");
+}
+
+#[test]
+fn vars_without_inferable_language_exits_3() {
+    let dir = scratch_dir("vars-nolang");
+    let file = dir.join("notes.xyz");
+    std::fs::write(&file, "x").expect("fixture should be writable");
+    let out = run("vars-nolang", &["vars", file.to_str().expect("UTF-8 path")]);
+    assert_eq!(code(&out), 3);
+    assert!(
+        stderr(&out).contains("pass --lang"),
+        "stderr: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn vars_missing_file_exits_3() {
+    let out = run(
+        "vars-missing",
+        &["vars", "--lang", "rust", "/nonexistent/x.rs"],
+    );
+    assert_eq!(code(&out), 3);
+    assert!(
+        stderr(&out).contains("cannot read"),
+        "stderr: {}",
+        stderr(&out)
+    );
+}

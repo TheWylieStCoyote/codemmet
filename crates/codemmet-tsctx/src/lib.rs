@@ -13,13 +13,13 @@
 //! reparse on change is fine at M3 scale; incremental sync via
 //! `InputEdit` is deliberately deferred.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 
 use codemmet_core::context::{
-    DocSnapshot, ExpansionContext, FillTarget, ImportScan, IndentUnit, NullContextProvider, Scope,
-    WrapSelection,
+    Collection, DocSnapshot, ExpansionContext, FillTarget, ImportScan, IndentUnit,
+    NullContextProvider, Scope, WrapSelection,
 };
 use codemmet_core::lang::profile;
 use tree_sitter::{Node, Tree};
@@ -29,6 +29,7 @@ pub use codemmet_core::context::ContextProvider;
 mod codegen;
 mod extract;
 mod imports;
+pub mod source;
 
 /// Whether this build carries a grammar for `language_id`.
 ///
@@ -956,6 +957,16 @@ impl ContextProvider for TreeSitterProvider {
         let spec = spec_for(&doc.language)?;
         let tree = self.tree_for(doc, spec)?;
         imports::scan(&doc.language, tree.root_node(), &doc.text)
+    }
+
+    fn source_collections(&mut self, doc: &DocSnapshot) -> BTreeMap<String, Collection> {
+        let Some(spec) = spec_for(&doc.language) else {
+            return BTreeMap::new();
+        };
+        let Some(tree) = self.tree_for(doc, spec) else {
+            return BTreeMap::new();
+        };
+        extract::file_collections(&doc.language, tree.root_node(), &doc.text)
     }
 }
 

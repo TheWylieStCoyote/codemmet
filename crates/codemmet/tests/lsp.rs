@@ -1257,6 +1257,14 @@ fn execute_command_context_reports_collections_and_scopes() {
         .map(|item| item["value"].as_str().expect("value is a string"))
         .collect();
     assert_eq!(values, ["Quit", "Move", "Write"]);
+    // The buffer's own API surface is a collection too (`src.fns` holds
+    // `main`), so a same-file `mod tests` can repeat over it.
+    let fns = collections
+        .iter()
+        .find(|c| c["name"] == json!("src.fns"))
+        .expect("src.fns should be in scope");
+    assert_eq!(fns["items"][0]["value"], json!("main"));
+    assert_eq!(fns["items"][0]["members"]["vis"], json!("private"));
     client.shutdown();
 }
 
