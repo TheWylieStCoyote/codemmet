@@ -308,7 +308,27 @@ pub fn context(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, 
             let items: Vec<serde_json::Value> = collection
                 .items
                 .iter()
-                .map(|item| serde_json::json!({ "value": item.value, "members": item.members }))
+                .map(|item| {
+                    let mut value =
+                        serde_json::json!({ "value": item.value, "members": item.members });
+                    // A function's `params` sub-collection, when it has one.
+                    if !item.collections.is_empty() {
+                        value["collections"] = serde_json::json!(
+                            item.collections
+                                .iter()
+                                .map(|(key, sub)| {
+                                    let items: Vec<serde_json::Value> = sub
+                                        .items
+                                        .iter()
+                                        .map(|p| serde_json::json!({ "value": p.value, "members": p.members }))
+                                        .collect();
+                                    (key.clone(), serde_json::Value::Array(items))
+                                })
+                                .collect::<serde_json::Map<_, _>>()
+                        );
+                    }
+                    value
+                })
                 .collect();
             serde_json::json!({ "name": name, "items": items })
         })

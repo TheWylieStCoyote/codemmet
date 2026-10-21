@@ -18,6 +18,11 @@ pub struct Item {
     /// Named extras a `${value.key}` reference can render (e.g. a field's
     /// `"type"`).
     pub members: BTreeMap<String, String>,
+    /// Nested collections a repeat **inside** this item's copy can iterate
+    /// with `*@outer.<key>` — a function's `params`, one item per parameter
+    /// (value = the name, members `type` / `default` where declared).
+    /// Empty for items without substructure.
+    pub collections: BTreeMap<String, Collection>,
 }
 
 impl Item {
@@ -27,6 +32,7 @@ impl Item {
         Self {
             value: value.into(),
             members: BTreeMap::new(),
+            collections: BTreeMap::new(),
         }
     }
 }

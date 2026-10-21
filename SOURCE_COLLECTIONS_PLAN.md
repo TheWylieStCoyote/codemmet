@@ -304,9 +304,10 @@ depend on earlier ones.
 
 ## Deferred / open
 
-- **Parameters as a nested collection** (one line per parameter inside each
-  test). Needs an item to carry a sub-collection. `args`/`params` strings
-  cover the first cut.
+- ~~**Parameters as a nested collection**~~ *(done)*: an `Item` carries
+  `collections`; every function item has a `params` sub-collection and a
+  nested repeat reaches it with `*@outer.params`. A present item with no such
+  sub-collection yields zero copies.
 - **Overloads** (C++) and same-named functions in different modules: keyed by
   bare name today; a later `signature` member may disambiguate.
 - **Nested functions / closures**: excluded from `src.fns` (only functions

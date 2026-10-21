@@ -84,13 +84,27 @@ fn collection_json(name: &str, collection: &Collection) -> serde_json::Value {
     let items: Vec<serde_json::Value> = collection
         .items
         .iter()
-        .map(|item| serde_json::json!({ "value": item.value, "members": item.members }))
+        .map(|item| {
+            let mut value = serde_json::json!({ "value": item.value, "members": item.members });
+            // Nested collections (a function's `params`) ride along only when
+            // present, so items without substructure stay compact.
+            if !item.collections.is_empty() {
+                let nested: serde_json::Map<String, serde_json::Value> = item
+                    .collections
+                    .iter()
+                    .map(|(key, sub)| (key.clone(), collection_json(key, sub)["items"].clone()))
+                    .collect();
+                value["collections"] = serde_json::Value::Object(nested);
+            }
+            value
+        })
         .collect();
     serde_json::json!({ "name": name, "items": items })
 }
 
 /// One block per collection: its name, then one line per item with the
-/// members as `key=value` pairs (the redundant `name` member omitted).
+/// members as `key=value` pairs (the redundant `name` member omitted), and an
+/// indented `.params:` line under items that carry a sub-collection.
 fn print_text(collections: &std::collections::BTreeMap<String, Collection>) {
     if collections.is_empty() {
         emit!("(no collections)");
@@ -120,6 +134,26 @@ fn print_text(collections: &std::collections::BTreeMap<String, Collection>) {
                 emit!("  {}", item.value);
             } else {
                 emit!("  {:<width$}  {}", item.value, members.join(" "));
+            }
+            // A function's parameters, as the `*@outer.params` sub-collection.
+            for (key, sub) in &item.collections {
+                let entries: Vec<String> = sub
+                    .items
+                    .iter()
+                    .map(|p| {
+                        let extras: Vec<String> = p
+                            .members
+                            .iter()
+                            .map(|(k, v)| format!("{k}={v:?}"))
+                            .collect();
+                        if extras.is_empty() {
+                            p.value.clone()
+                        } else {
+                            format!("{} ({})", p.value, extras.join(" "))
+                        }
+                    })
+                    .collect();
+                emit!("  {:<width$}    .{key}: {}", "", entries.join(", "));
             }
         }
     }

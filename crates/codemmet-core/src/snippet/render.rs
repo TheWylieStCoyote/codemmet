@@ -584,8 +584,10 @@ impl Composer<'_> {
     /// missing or empty degrades to a single `None` copy (the `${value}`
     /// placeholders become tabstops), so the user still gets a scaffold.
     ///
-    /// A data-driven repeat is narrowed by its `?predicate` filter — or, when
-    /// none was written, by the snippet's `default_filter`. Filtering a
+    /// `*@outer.<key>` repeats over a sub-collection of the enclosing item
+    /// (`tfn*@src.fns>let*@outer.params`: one `let` per parameter of each
+    /// function). A data-driven repeat is narrowed by its `?predicate` filter
+    /// — or, when none was written, by the snippet's `default_filter`. Filtering a
     /// present collection down to nothing yields **zero** copies: "no public
     /// function here" is real information, unlike a missing collection.
     fn resolve_items(
@@ -594,18 +596,34 @@ impl Composer<'_> {
         subject: Option<&str>,
         default_filter: &[Predicate],
     ) -> Vec<Option<Item>> {
-        let items_of = |name: &str, filter: &Filter| match self.collections.get(name) {
-            Some(collection) if !collection.items.is_empty() => {
-                let predicates = filter.effective(default_filter);
-                collection
-                    .items
-                    .iter()
-                    .filter(|item| predicates.iter().all(|p| p.matches(item)))
-                    .cloned()
-                    .map(Some)
-                    .collect()
+        // `*@outer.<key>`: a sub-collection of the enclosing data-driven item
+        // (a function's `params`); anything else is a context collection.
+        // An enclosing item that simply has no such sub-collection (a
+        // parameterless function) is *known empty* — zero copies — whereas a
+        // missing context collection keeps the one-blank-copy scaffold.
+        let items_of = |name: &str, filter: &Filter| {
+            let (collection, known_empty) = name.strip_prefix("outer.").map_or_else(
+                || (self.collections.get(name), false),
+                |key| {
+                    self.outer_stack
+                        .last()
+                        .map_or((None, false), |it| (it.collections.get(key), true))
+                },
+            );
+            match collection {
+                Some(collection) if !collection.items.is_empty() => {
+                    let predicates = filter.effective(default_filter);
+                    collection
+                        .items
+                        .iter()
+                        .filter(|item| predicates.iter().all(|p| p.matches(item)))
+                        .cloned()
+                        .map(Some)
+                        .collect()
+                }
+                _ if known_empty => Vec::new(),
+                _ => vec![None],
             }
-            _ => vec![None],
         };
         match repeat {
             Repeat::Count(n) => (0..*n).map(|_| None).collect(),
@@ -1921,6 +1939,40 @@ mod tests {
         );
         assert_eq!(names("tfn*@src.fns?all?async"), ["fn test_fetch"]);
         assert_eq!(names("tfn*@src.fns?value~he*"), ["fn test_helper"]);
+    }
+
+    /// `*@outer.params` nests over the enclosing item's sub-collection.
+    #[test]
+    fn outer_sub_collection_repeat() {
+        let mut ctx = ctx();
+        let mut area = Item::new("area");
+        for (name, ty) in [("w", "f64"), ("h", "f64")] {
+            let mut p = Item::new(name);
+            p.members.insert("type".to_owned(), ty.to_owned());
+            area.collections
+                .entry("params".to_owned())
+                .or_default()
+                .items
+                .push(p);
+        }
+        let none = Item::new("none");
+        ctx.collections.insert(
+            "src.fns".to_owned(),
+            Collection {
+                items: vec![area, none],
+            },
+        );
+        // `impl` has a child slot; `note` renders its arg. One `impl` per fn,
+        // one `note` per parameter inside it (none for a parameterless fn).
+        let out = expand(
+            "impl:${value}*@src.fns?all>note:${value}*@outer.params",
+            &ctx,
+            TabstopMode::Strip,
+        );
+        assert_eq!(
+            out.body,
+            "impl area {\n    // w\n    // h\n}\nimpl none {\n\n}"
+        );
     }
 
     /// Filtering a present collection to nothing renders zero copies; a

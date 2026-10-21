@@ -164,6 +164,11 @@ of predicates written right after it, no spaces:
 | `?value~glob` / `?value=text` | the item's own text matches |
 | `?all` | clear the snippet's default filter (see below), keep everything |
 
+A repeat source may also be a **sub-collection of the enclosing item**,
+written `*@outer.<key>`: inside `tfn*@src.fns`, `let*@outer.params` repeats
+over the current function's parameters (see [source
+collections](context-codegen.md#source-collections-functions-types-and-methods)).
+
 Predicates AND together — `tfn*@src.fns?vis=public?!async` keeps the public,
 non-async functions. A filter only ever narrows: filtering a collection down
 to nothing renders **zero** copies, which is real information ("nothing

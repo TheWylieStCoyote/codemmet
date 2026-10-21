@@ -196,6 +196,34 @@ tmeth*@src.Point.methods?!static   # Point's instance methods
 fn*@src.fns?value~get_*            # a stub per getter
 ```
 
+Each function item also carries a **`params` sub-collection** — one item per
+parameter, value = its name, with `type` and `default` members where the
+source declares them. A repeat *inside* a function's copy iterates it with
+`*@outer.params` (the enclosing item is `outer` from the child's point of
+view). Here one stub function per source function, each binding its
+parameters first:
+
+```sh
+codemmet expand --lang rust --source src/geometry.rs \
+    'fn:${value}*@src.fns>let:${value}*@outer.params'
+```
+
+```rust
+fn area() {
+    let w = ;
+    let h = ;
+}
+fn helper() {
+
+}
+```
+
+`helper` takes no parameters, so it gets zero inner copies (not a blank
+scaffold: the enclosing item exists, it just has nothing there). The inner
+node's own `${value}` is the parameter and `${value.type}` its declared type;
+`${outer}` is still the function. `codemmet vars` shows the sub-collection as
+an indented `.params:` line under each function.
+
 The current buffer always contributes its own `src.*` collections, so a Rust
 inline `mod tests` can repeat over the functions above it with nothing more.
 A test file that lives apart from the code under test names its **source**

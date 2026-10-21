@@ -42,6 +42,12 @@ follows [Semantic Versioning](https://semver.org/).
   every pack, data-driven with public-by-default filters: Rust `#[test]`,
   pytest, C `assert`, GoogleTest, Jest (TypeScript inherits), Go `testing`.
   `tfn*@src.fns` with a source writes one test per public function.
+- **Parameters as a nested collection.** Every function item carries a
+  `params` sub-collection (one item per parameter, with `type`/`default`
+  members); a repeat inside the function's copy iterates it with
+  `*@outer.params`, e.g. `tfn*@src.fns>let:${value}*@outer.params`. A
+  parameterless function yields zero inner copies. `codemmet vars` and
+  `codemmet.context` show sub-collections.
 - **Docs and tests.** A tutorial chapter ("Generating tests from a file")
   with the exact outputs, the Neovim flow in the editor guide, and a headless
   end-to-end test (`tests/nvim/source.lua`) covering `:CodemmetSource`,

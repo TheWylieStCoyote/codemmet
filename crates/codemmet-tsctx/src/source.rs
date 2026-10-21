@@ -96,6 +96,9 @@ struct Func {
     params: Vec<String>,
     /// The parameter names, for a call expression.
     args: Vec<String>,
+    /// One item per parameter (value = name, members `type`/`default`), the
+    /// `params` sub-collection a nested `*@outer.params` repeats over.
+    param_items: Vec<Item>,
     ret: Option<String>,
     vis: Option<Vis>,
     is_async: bool,
@@ -158,7 +161,34 @@ impl Func {
         if let Some(module) = self.module {
             m.insert("module".to_owned(), module);
         }
+        if !self.param_items.is_empty() {
+            item.collections.insert(
+                "params".to_owned(),
+                Collection {
+                    items: self.param_items,
+                },
+            );
+        }
         item
+    }
+
+    /// Record one parameter: its name for `args`, its full text for
+    /// `params`, and an item (with `type` / `default` members when known) for
+    /// the `params` sub-collection.
+    fn param(&mut self, raw: &str, name: &str, ty: Option<&str>, default: Option<&str>) {
+        if !raw.is_empty() {
+            self.params.push(raw.to_owned());
+        }
+        self.args.push(name.to_owned());
+        let mut item = Item::new(name);
+        if let Some(ty) = ty.map(str::trim).filter(|t| !t.is_empty()) {
+            item.members.insert("type".to_owned(), ty.to_owned());
+        }
+        if let Some(default) = default.map(str::trim).filter(|d| !d.is_empty()) {
+            item.members
+                .insert("default".to_owned(), default.to_owned());
+        }
+        self.param_items.push(item);
     }
 }
 
@@ -400,12 +430,15 @@ mod rust {
                     saw_receiver = true;
                     func.receiver = Some(node_text(param, text).to_owned());
                 }
-                "parameter" => {
-                    func.params.push(node_text(param, text).to_owned());
-                    if let Some(pattern) = field_text(param, "pattern", text) {
-                        func.args.push(pattern.to_owned());
-                    }
-                }
+                "parameter" => match field_text(param, "pattern", text) {
+                    Some(pattern) => func.param(
+                        node_text(param, text),
+                        pattern,
+                        field_text(param, "type", text),
+                        None,
+                    ),
+                    None => func.params.push(node_text(param, text).to_owned()),
+                },
                 "variadic_parameter" => func.params.push(node_text(param, text).to_owned()),
                 _ => {}
             }
@@ -512,14 +545,24 @@ mod python {
         let mut first = true;
         for param in field_nodes(node, "parameters") {
             let raw = node_text(param, text);
-            let name = match param.kind() {
-                "identifier" | "list_splat_pattern" | "dictionary_splat_pattern" => raw.to_owned(),
-                "typed_parameter" => param
-                    .named_child(0)
-                    .map_or_else(String::new, |n| node_text(n, text).to_owned()),
-                "default_parameter" | "typed_default_parameter" => field_text(param, "name", text)
-                    .unwrap_or_default()
-                    .to_owned(),
+            let (name, ty, default): (String, Option<&str>, Option<&str>) = match param.kind() {
+                "identifier" | "list_splat_pattern" | "dictionary_splat_pattern" => {
+                    (raw.to_owned(), None, None)
+                }
+                "typed_parameter" => (
+                    param
+                        .named_child(0)
+                        .map_or_else(String::new, |n| node_text(n, text).to_owned()),
+                    field_text(param, "type", text),
+                    None,
+                ),
+                "default_parameter" | "typed_default_parameter" => (
+                    field_text(param, "name", text)
+                        .unwrap_or_default()
+                        .to_owned(),
+                    field_text(param, "type", text),
+                    field_text(param, "value", text),
+                ),
                 // `*` and `/` separators carry no argument.
                 _ => continue,
             };
@@ -534,8 +577,7 @@ mod python {
                 continue;
             }
             first = false;
-            func.params.push(raw.to_owned());
-            func.args.push(name);
+            func.param(raw, &name, ty, default);
         }
         func.ret = field_text(node, "return_type", text).map(str::to_owned);
         func.is_test = func.name.starts_with("test");
@@ -708,10 +750,12 @@ mod c {
                         .child_by_field_name("declarator")
                         .and_then(|d| innermost_ident(d, &["identifier"]));
                     match ident {
-                        Some(ident) => {
-                            func.params.push(node_text(param, text).to_owned());
-                            func.args.push(node_text(ident, text).to_owned());
-                        }
+                        Some(ident) => func.param(
+                            node_text(param, text),
+                            node_text(ident, text),
+                            field_text(param, "type", text),
+                            field_text(param, "default_value", text),
+                        ),
                         // `(void)` and unnamed parameters contribute no argument.
                         None if field_text(param, "type", text) == Some("void") => {}
                         None => func.params.push(node_text(param, text).to_owned()),
@@ -838,16 +882,20 @@ mod js {
         }
         for param in field_nodes(node, "parameters") {
             let raw = node_text(param, text);
-            let name = match param.kind() {
-                "identifier" | "rest_pattern" => raw.to_owned(),
-                "required_parameter" | "optional_parameter" => {
-                    field_text(param, "pattern", text).unwrap_or(raw).to_owned()
-                }
-                "assignment_pattern" => field_text(param, "left", text).unwrap_or(raw).to_owned(),
+            let ty = field_text(param, "type", text).map(clean_type);
+            let (name, default) = match param.kind() {
+                "identifier" | "rest_pattern" => (raw.to_owned(), None),
+                "required_parameter" | "optional_parameter" => (
+                    field_text(param, "pattern", text).unwrap_or(raw).to_owned(),
+                    field_text(param, "value", text),
+                ),
+                "assignment_pattern" => (
+                    field_text(param, "left", text).unwrap_or(raw).to_owned(),
+                    field_text(param, "right", text),
+                ),
                 _ => continue,
             };
-            func.params.push(raw.to_owned());
-            func.args.push(name);
+            func.param(raw, &name, ty.as_deref(), default);
         }
         func.ret = field_text(node, "return_type", text).map(clean_type);
         func
@@ -917,11 +965,20 @@ mod go {
         let mut func = Func::named(field_text(node, "name", text).unwrap_or_default());
         func.vis = Some(vis_of(&func.name));
         for param in field_nodes(node, "parameters") {
-            func.params.push(node_text(param, text).to_owned());
-            // `w, h float64` names two arguments; a bare type names none.
+            // `w, h float64` names two arguments; a bare type names none. The
+            // declaration text goes into `params` once, on the first name.
+            let ty = field_text(param, "type", text).map(clean_type);
             let mut cursor = param.walk();
-            for name in param.children_by_field_name("name", &mut cursor) {
-                func.args.push(node_text(name, text).to_owned());
+            let names: Vec<String> = param
+                .children_by_field_name("name", &mut cursor)
+                .map(|n| node_text(n, text).to_owned())
+                .collect();
+            if names.is_empty() {
+                func.params.push(node_text(param, text).to_owned());
+            }
+            for (i, name) in names.iter().enumerate() {
+                let raw = if i == 0 { node_text(param, text) } else { "" };
+                func.param(raw, name, ty.as_deref(), None);
             }
         }
         func.ret = field_text(node, "result", text).map(clean_type);
@@ -1343,6 +1400,71 @@ type Shape interface { Area() float64 }
         assert_eq!(member(&map, "src.Point.methods", "Bump", "owner"), "Point");
         assert_eq!(names(&map, "src.types"), ["Point", "Shape"]);
         assert_eq!(member(&map, "src.types", "Shape", "kind"), "interface");
+    }
+
+    /// Every function item carries a `params` sub-collection: one item per
+    /// parameter, with `type` (and `default`) members where declared.
+    #[cfg(all(feature = "lang-rust", feature = "lang-python", feature = "lang-go"))]
+    #[test]
+    fn params_sub_collection() {
+        let params =
+            |map: &BTreeMap<String, Collection>, key: &str, value: &str| -> Vec<(String, String)> {
+                item(map, key, value)
+                    .collections
+                    .get("params")
+                    .map(|c| {
+                        c.items
+                            .iter()
+                            .map(|p| {
+                                (
+                                    p.value.clone(),
+                                    p.members.get("type").cloned().unwrap_or_default(),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+        let rust = collections(
+            "rust",
+            "pub fn area(w: f64, h: &str) -> f64 { 0.0 }\nfn none() {}\n",
+        );
+        assert_eq!(
+            params(&rust, "src.fns", "area"),
+            [
+                ("w".to_owned(), "f64".to_owned()),
+                ("h".to_owned(), "&str".to_owned())
+            ]
+        );
+        assert!(item(&rust, "src.fns", "none").collections.is_empty());
+
+        let py = collections("python", "def f(a, b: int = 2, *rest):\n    pass\n");
+        assert_eq!(
+            params(&py, "src.fns", "f"),
+            [
+                ("a".to_owned(), String::new()),
+                ("b".to_owned(), "int".to_owned()),
+                ("*rest".to_owned(), String::new())
+            ]
+        );
+        assert_eq!(
+            item(&py, "src.fns", "f").collections["params"].items[1].members["default"],
+            "2"
+        );
+
+        let go = collections("go", "package x\nfunc Area(w, h float64, s string) {}\n");
+        assert_eq!(
+            params(&go, "src.fns", "Area"),
+            [
+                ("w".to_owned(), "float64".to_owned()),
+                ("h".to_owned(), "float64".to_owned()),
+                ("s".to_owned(), "string".to_owned())
+            ]
+        );
+        assert_eq!(
+            member(&go, "src.fns", "Area", "params"),
+            "w, h float64, s string"
+        );
     }
 
     #[cfg(feature = "lang-rust")]
