@@ -892,6 +892,68 @@ fn adds() {
 
 A `#[test]` function with a glued name argument (`:adds`). Nesting a child with `>`, such as `aeq`, fills the body.
 
+### `tfn`
+
+test calling a function (data-driven).
+
+Given a source file `geometry.rs`:
+
+```rust
+pub fn area(w: f64, h: f64) -> f64 { w * h }
+fn helper() {}
+pub struct Point { x: f64 }
+impl Point {
+    pub fn new(x: f64) -> Self { Self { x } }
+    pub fn len(&self) -> f64 { self.x }
+}
+```
+
+```sh
+codemmet expand --lang rust --source geometry.rs "tfn*@src.fns"
+```
+
+```rust
+#[test]
+fn area_works() {
+    let result = area(w, h);
+    assert_eq!(result, expected);
+}
+```
+
+One test per function in `src.fns` — the file's free functions — with the
+call's arguments filled from `${value.args}`. `tfn` carries a **default
+filter** (public, non-test, non-async), which is why private `helper` and `new` (a constructor / associated fn) got no test; write your own
+chain to change that (`tfn*@src.fns?all` for everything, `?!async` to include
+private functions too). Bare `tfn` is the same body with tabstops. See
+[source collections](../context-codegen.md#source-collections-functions-types-and-methods)
+and [repeat filters](../syntax.md#repeat-filters-predicate); `:CodemmetSource`
+sets the source in Neovim.
+
+### `tmeth`
+
+test calling a method on a constructed value (data-driven).
+
+With the same `geometry.rs` as under [`tfn`](#tfn):
+
+```sh
+codemmet expand --lang rust --source geometry.rs "tmeth*@src.Point.methods"
+```
+
+```rust
+#[test]
+fn point_len_works() {
+    let subject = Point::new();
+    let result = subject.len();
+    assert_eq!(result, expected);
+}
+```
+
+One test per method of `Point` (`src.Point.methods`; `src.methods` is every
+type's methods with an `owner` member). The default filter keeps public
+instance methods — constructors, statics, async methods, and trait impls are skipped — so the
+constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
+lifts the filter.
+
 ### `tmod`
 
 test module with cfg(test).

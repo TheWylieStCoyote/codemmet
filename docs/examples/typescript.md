@@ -861,6 +861,62 @@ test("works", () => {
 
 Expands to a `test("...", () => { })` case. Nested triggers such as `aeq` fill the test body with assertions.
 
+### `tfn`
+
+Jest test calling a function (data-driven).
+
+Given a source file `geometry.ts`:
+
+```typescript
+export function area(w, h) { return w * h; }
+export class Point {
+  constructor(x) { this.x = x; }
+  length() { return this.x; }
+}
+```
+
+```sh
+codemmet expand --lang typescript --source geometry.ts "tfn*@src.fns"
+```
+
+```typescript
+test("area works", () => {
+  expect(area(w, h)).toBe(expected);
+});
+```
+
+One test per function in `src.fns` — the file's free functions — with the
+call's arguments filled from `${value.args}`. `tfn` carries a **default
+filter** (public, non-test, non-async), which is why the constructor got no test; write your own
+chain to change that (`tfn*@src.fns?all` for everything, `?!async` to include
+private functions too). Bare `tfn` is the same body with tabstops. See
+[source collections](../context-codegen.md#source-collections-functions-types-and-methods)
+and [repeat filters](../syntax.md#repeat-filters-predicate); `:CodemmetSource`
+sets the source in Neovim.
+
+### `tmeth`
+
+Jest test calling a method on a constructed instance (data-driven).
+
+With the same `geometry.ts` as under [`tfn`](#tfn):
+
+```sh
+codemmet expand --lang typescript --source geometry.ts "tmeth*@src.Point.methods"
+```
+
+```typescript
+test("Point.length works", () => {
+  const subject = new Point();
+  expect(subject.length()).toBe(expected);
+});
+```
+
+One test per method of `Point` (`src.Point.methods`; `src.methods` is every
+type's methods with an `owner` member). The default filter keeps public
+instance methods — constructors, statics, and async methods are skipped — so the
+constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
+lifts the filter.
+
 ### `todo`
 
 A TODO comment.

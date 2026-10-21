@@ -1,8 +1,9 @@
 # Source collections — functions, types, and methods as data (design)
 
-Status: **approved for build** (2026-10-21). Decisions recorded here came out of
-an exploration with the owner; the open items at the end are deliberately
-deferred, not forgotten.
+Status: **milestones 1–4 built** (2026-10-21, branch `feat/source-collections`).
+Decisions recorded here came out of an exploration with the owner; the open
+items at the end are deliberately deferred, not forgotten. Where the build
+refined a decision, the text below says so.
 
 ## The problem
 
@@ -261,23 +262,45 @@ same data for the buffer, so the editor's context viewer shows `src.*` too.
 
 ## Milestones
 
-Each is a branch and a PR into `codemmit` (origin), in this order; later ones
+Built in this order on one branch, one commit per milestone; later ones
 depend on earlier ones.
 
-1. **Extraction + discovery.** `src.fns`, `src.types`, `src.<T>.methods` for
+1. **Extraction + discovery.** *(done)* `src.fns`, `src.types`, `src.<T>.methods` for
    all seven languages in `extract.rs`; `codemmet vars`; `src.*` collections
    in `context_at` and `codemmet.context`. No engine change.
-2. **Source + variables.** `--source`/`#source`, `ExpansionContext.vars`,
+2. **Source + variables.** *(done)* `--source`/`#source`, `ExpansionContext.vars`,
    `${src.key}` spans, `src.module` derivation per language, the LSP `source`
    argument, `:CodemmetSource`.
-3. **Filters.** Parser (`?` predicates, dotted source names), AST, renderer
+3. **Filters.** *(done)* Parser (`?` predicates, dotted source names), AST, renderer
    (`resolve_items`), snippet-level `filter` with `?all`, docs.
-4. **Test packs.** `tfn`/`tmeth` per language with default filters; examples
+4. **Test packs.** *(done)* `tfn`/`tmeth` per language with default filters; examples
    in `docs/examples/*`.
 5. **Per-item variants** — only when a template forces it (decision 7).
 6. **"Add missing tests" code action** — a `fill_targets` shape that parses
    the test file too and offers one edit per untested function. Mirrors the
    match-arm fill. Optional.
+
+## Refinements made while building
+
+- **`src.methods`** (every method, flat, with `owner`) exists beside the
+  per-type collections; it fell out of the accumulator for free and makes
+  "one test per method in the file" a single repeat.
+- **Members added:** `ctor` (constructors: Rust `new`, Python `__init__`,
+  C++ `Type()`, JS/TS `constructor`) and `module` (enclosing module /
+  namespace path), both useful filter keys.
+- **Trait-impl methods are `public`** (as visible as the trait) and Python
+  dunders are public (protocol methods); Python's `?receiver=self` is the
+  cleanest "instance method" test, so the Python `tmeth` default uses it.
+- **Per-document source in the LSP** is state (`codemmet.setSource`) rather
+  than an argument on every command, so completion — which has no custom
+  arguments — sees it too.
+- **`src.module` anchors on the last `src` path component** (and, for
+  Python, on `__init__.py` files found on disk), so absolute editor paths
+  never leak the filesystem root into the module path.
+- **Glob values may contain `*`**: a predicate runs to the next `?`,
+  whitespace, or structural operator, and `*` is not one there.
+- **Default filters exclude async** in Rust/Python/JS (the bodies have no
+  runtime / `await`); C's `tfn` keeps value-returning functions only (`?ret`).
 
 ## Deferred / open
 

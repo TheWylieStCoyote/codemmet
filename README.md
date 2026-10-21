@@ -72,9 +72,12 @@ Supported languages: Rust, Python, C, C++ (inherits C), JavaScript, TypeScript
 (inherits JavaScript), and Go — ~265 builtin triggers. Tree-sitter powers
 context-aware expansion (`fn` inside an `impl` block expands with `&self`,
 `def` in a Python class gets `self`), data-driven repeats that read enum
-variants and struct fields from the buffer (`match:Msg>arm*`), completion
-suppression inside strings and comments, and statement-boundary snapping for
-wrap selections. See [PLAN.md](PLAN.md) and
+variants and struct fields from the buffer (`match:Msg>arm*`), **source
+collections** — a file's functions, types, and methods as data, so
+`tfn*@src.fns` writes one test per public function of the file under test
+(`--source`, `:CodemmetSource`) — repeat filters (`?vis=public?!async`),
+completion suppression inside strings and comments, and statement-boundary
+snapping for wrap selections. See [PLAN.md](PLAN.md) and
 [context-aware & data-driven expansion](docs/context-codegen.md) for the
 design.
 
@@ -115,6 +118,8 @@ codemmet expand --lang python --tabstops keep "def:handler>try"
 echo "class:Point>init" | codemmet expand --lang py -
 codemmet list --lang rust          # all triggers with descriptions
 codemmet check                     # validate user snippet overrides
+codemmet vars src/geometry.rs      # the functions/types/methods a file yields
+codemmet expand --lang rust --source src/geometry.rs "tfn*@src.fns"   # a test per public fn
 ```
 
 `--tabstops keep` emits LSP snippet syntax (`${1:placeholder}`, `$0`);

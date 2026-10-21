@@ -930,6 +930,67 @@ func TestAdd(t *testing.T) {
 
 `test:Add` builds the standard `func TestAdd(t *testing.T)`. The composed form nests an `aeq` equality assertion into the body.
 
+### `tfn`
+
+testing.T test calling a function (data-driven).
+
+Given a source file `geometry.go`:
+
+```go
+package geo
+func Area(w, h float64) float64 { return w * h }
+type Point struct { X float64 }
+func (p Point) Length() float64 { return p.X }
+```
+
+```sh
+codemmet expand --lang go --source geometry.go "tfn*@src.fns"
+```
+
+```go
+func TestArea(t *testing.T) {
+	got := Area(w, h)
+	if got != want {
+		t.Errorf("Area() = %v, want %v", got, want)
+	}
+}
+```
+
+One test per function in `src.fns` — the file's free functions — with the
+call's arguments filled from `${value.args}`. `tfn` carries a **default
+filter** (public, non-test), which is why nothing here got no test; write your own
+chain to change that (`tfn*@src.fns?all` for everything, `?!async` to include
+private functions too). Bare `tfn` is the same body with tabstops. See
+[source collections](../context-codegen.md#source-collections-functions-types-and-methods)
+and [repeat filters](../syntax.md#repeat-filters-predicate); `:CodemmetSource`
+sets the source in Neovim.
+
+### `tmeth`
+
+testing.T test calling a method on a constructed value (data-driven).
+
+With the same `geometry.go` as under [`tfn`](#tfn):
+
+```sh
+codemmet expand --lang go --source geometry.go "tmeth*@src.Point.methods"
+```
+
+```go
+func TestPointLength(t *testing.T) {
+	subject := Point{}
+	got := subject.Length()
+	if got != want {
+		t.Errorf("Length() = %v, want %v", got, want)
+	}
+}
+```
+
+One test per method of `Point` (`src.Point.methods`; `src.methods` is every
+type's methods with an `owner` member). The default filter keeps public
+instance methods — constructors, statics are skipped — so the
+constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
+lifts the filter.
+
 ### `todo`
 
 TODO comment.

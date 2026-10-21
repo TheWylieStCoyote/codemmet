@@ -157,7 +157,8 @@ The plugin also defines these user commands:
 | `:CodemmetWrap` | yes | Wrap the given line range in an abbreviation. |
 | `:CodemmetCapture {name}` | yes | Capture the selected lines into the project snippet pack as a reusable snippet. Prompts for `{name}` when omitted. |
 | `:CodemmetSnippets` | no | Browse the buffer's snippets in a picker and expand the picked one at the cursor. |
-| `:CodemmetContext` | no | Show the codemmet context (scope stack, in-scope collections) at the cursor. |
+| `:CodemmetContext` | no | Show the codemmet context (scope stack, in-scope collections, the source file and its `${src.*}` variables) at the cursor. |
+| `:CodemmetSource {path}` | no | Set the **source file** for this buffer: the file whose functions, types, and methods back the `src.*` collections (`tfn*@src.fns`) and whose path sets `${src.*}`. Prompts when `{path}` is omitted, prefilled with a convention-based guess (`test_x.py` → `x.py`, `x_test.go` → `x.go`, `x.test.ts` → `x.ts`, `tests/x.rs` → `src/x.rs`, …); `none` clears it. |
 | `:CodemmetRenderTo {file}` | no | Render the `.codemmet` buffer to `{file}` — by default the sidecar name, the buffer path minus `.codemmet`. Writes nothing on a failed render. |
 | `:CodemmetScaffold {abbr}` | no | Expand a [multi-file snippet](snippets.md#multi-file-snippets) across files (create/append/inject), then open the primary file. Prompts for the invocation when omitted. |
 | `:CodemmetPreviewToggle` | no | Toggle the live ghost-line preview in this buffer. |
@@ -267,6 +268,24 @@ would see before you type it. The float closes when the cursor moves.
 Both are read-only server commands (`codemmet.list`, `codemmet.context`), so
 any LSP client able to call `workspace/executeCommand` can build the same
 surfaces.
+
+### Generating tests from a source file
+
+Tests usually live apart from the code under test, so the buffer's own
+definitions are not the ones you want to repeat over. `:CodemmetSource
+src/geometry.rs` tells the server which file backs this buffer's `src.*`
+collections (see [source
+collections](context-codegen.md#source-collections-functions-types-and-methods));
+from then on every expansion, preview, completion, and `:CodemmetContext` in
+the buffer sees that file's functions, types, and methods, and
+`${src.module}` resolves to its import path. Then type `tfn*@src.fns` and
+expand: one test per public function. The choice is kept per buffer
+(`vim.b.codemmet_source`) and re-sent if the server restarts.
+
+The server side is the `codemmet.setSource` command: `{ uri, source }` with a
+path (absolute, or relative to the document's directory) stores it and returns
+`{ source, collections }` — the resolved path and the collection names it
+yields; `{ uri, source: null }` clears it.
 ### Authoring `.codemmet` files (file mode)
 
 The plugin makes `.codemmet` source files — the multi-line file-mode format

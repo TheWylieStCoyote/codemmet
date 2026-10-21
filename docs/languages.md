@@ -87,6 +87,8 @@ id `rust` | extensions: `rs` | LSP ids: `rust` | default indent: 4 spaces
 | [`rfn`](examples/rust.md#rfn) | function returning Result |
 | [`struct`](examples/rust.md#struct) | struct definition |
 | [`test`](examples/rust.md#test) | test function |
+| [`tfn`](examples/rust.md#tfn) | test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
+| [`tmeth`](examples/rust.md#tmeth) | test calling a method on a constructed value (data-driven: tmeth*@src.Type.methods) |
 | [`tmod`](examples/rust.md#tmod) | test module with cfg(test) |
 | [`todo`](examples/rust.md#todo) | TODO comment |
 | [`trait`](examples/rust.md#trait) | trait definition |
@@ -131,6 +133,8 @@ id `python` | extensions: `py` | LSP ids: `python` | default indent: 4 spaces
 | [`ret`](examples/python.md#ret) | return statement |
 | [`str`](examples/python.md#str) | __str__ dunder method |
 | [`test`](examples/python.md#test) | test function (pytest style) |
+| [`tfn`](examples/python.md#tfn) | pytest test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
+| [`tmeth`](examples/python.md#tmeth) | pytest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods) |
 | [`todo`](examples/python.md#todo) | TODO comment |
 | [`try`](examples/python.md#try) | try/except block |
 | [`while`](examples/python.md#while) | while loop |
@@ -182,6 +186,7 @@ id `c` | extensions: `c`, `h` | LSP ids: `c` | default indent: 4 spaces
 | [`struct`](examples/c.md#struct) | typedef'd struct definition |
 | [`switch`](examples/c.md#switch) | switch statement |
 | [`td`](examples/c.md#td) | typedef declaration |
+| [`tfn`](examples/c.md#tfn) | assert-based test calling a function (data-driven: tfn*@src.fns, non-static value-returning by default) |
 | [`todo`](examples/c.md#todo) | TODO comment |
 | [`while`](examples/c.md#while) | while loop |
 
@@ -228,6 +233,8 @@ example, `enum` and `struct` override C's typedef forms.
 | [`struct`](examples/cpp.md#struct) | struct definition (overrides C's typedef form) |
 | [`switch`](examples/cpp.md#switch) | switch statement |
 | [`td`](examples/cpp.md#td) | typedef declaration |
+| [`tfn`](examples/cpp.md#tfn) | GoogleTest TEST calling a function (data-driven: tfn*@src.fns, public by default) |
+| [`tmeth`](examples/cpp.md#tmeth) | GoogleTest TEST calling a method on a constructed object (data-driven: tmeth*@src.Type.methods) |
 | [`todo`](examples/cpp.md#todo) | TODO comment |
 | [`tpl`](examples/cpp.md#tpl) | template parameter list (prefix for a declaration) |
 | [`try`](examples/cpp.md#try) | try/catch block |
@@ -273,6 +280,8 @@ LSP ids: `javascript`, `javascriptreact` | default indent: 2 spaces
 | [`set`](examples/javascript.md#set) | setter backed by a private-by-convention field |
 | [`switch`](examples/javascript.md#switch) | switch statement |
 | [`test`](examples/javascript.md#test) | test case (jest/vitest style) |
+| [`tfn`](examples/javascript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
+| [`tmeth`](examples/javascript.md#tmeth) | Jest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods) |
 | [`todo`](examples/javascript.md#todo) | TODO comment |
 | [`try`](examples/javascript.md#try) | try/catch block |
 | [`while`](examples/javascript.md#while) | while loop |
@@ -323,6 +332,8 @@ TypeScript starts from the JavaScript pack. Several triggers such as `afn` and
 | [`set`](examples/typescript.md#set) | setter backed by a private-by-convention field |
 | [`switch`](examples/typescript.md#switch) | switch statement |
 | [`test`](examples/typescript.md#test) | test case (jest/vitest style) |
+| [`tfn`](examples/typescript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
+| [`tmeth`](examples/typescript.md#tmeth) | Jest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods) |
 | [`todo`](examples/typescript.md#todo) | TODO comment |
 | [`try`](examples/typescript.md#try) | try/catch block |
 | [`typ`](examples/typescript.md#typ) | type alias |
@@ -369,6 +380,8 @@ id `go` | extensions: `go` | LSP ids: `go` | default indent: tab
 | [`struct`](examples/go.md#struct) | struct type definition |
 | [`switch`](examples/go.md#switch) | switch statement (cases at switch level, per gofmt) |
 | [`test`](examples/go.md#test) | test function (testing package) |
+| [`tfn`](examples/go.md#tfn) | testing.T test calling a function (data-driven: tfn*@src.fns, exported by default) |
+| [`tmeth`](examples/go.md#tmeth) | testing.T test calling a method on a constructed value (data-driven: tmeth*@src.Type.methods) |
 | [`todo`](examples/go.md#todo) | TODO comment |
 
 Go uses tab indentation, which you can see in this expansion:

@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Source collections: a file's functions, types, and methods as data**
+  (`SOURCE_COLLECTIONS_PLAN.md`). Tree-sitter extraction now reads a file's
+  API surface into `src.fns`, `src.types`, `src.methods`, and
+  `src.<Type>.methods` for all seven languages, each item carrying a fixed
+  member vocabulary (`params`, `args`, `ret`, normalized `vis`, `async`,
+  `static`, `receiver`, `owner`, `trait`, `kind`, `test`, `ctor`, `module`).
+  The current buffer always contributes its own; `codemmet.context` /
+  `:CodemmetContext` show them.
+- **`codemmet vars [--lang] [--json] FILE`** prints every collection a file
+  yields, members included — the discovery command and the extractor's
+  oracle.
+- **Explicit source files.** `--source FILE` on `expand`/`render`/`scaffold`,
+  a `#source PATH` directive in `.codemmet` files, the LSP `codemmet.setSource`
+  command, and `:CodemmetSource [path|none]` in Neovim (prompts with a
+  convention-based guess: `test_x.py` → `x.py`, `x_test.go` → `x.go`,
+  `x.test.ts` → `x.ts`, `tests/x.rs` → `src/x.rs`, …). The source's
+  collections replace the buffer's same-named ones; precedence is
+  buffer < source < `--repeat` < `#repeat`.
+- **`${src.*}` variables** in snippet bodies — `module` (the language's
+  import spelling: Rust `crate::a::b`, Python packages from `__init__.py`,
+  Go's `package`, C/C++ header name, JS/TS `./stem`), `file`, `stem`, `dir`,
+  `path` — with `|transform` and `:default`. Without a source they render as
+  a tabstop carrying the default (or the key), never silent empty text.
+- **Repeat filters.** A data-driven repeat takes a whitespace-free predicate
+  chain: `tfn*@src.fns?vis=public?!async`, `?value~get_*` (glob), `?all`.
+  Predicates AND together and only narrow; filtering to nothing renders zero
+  copies. Collection names may be dotted (`*@src.Point.methods`).
+- **Snippet default filters.** `filter = "vis=public"` on a snippet applies
+  when the abbreviation writes no chain; a written chain replaces it and
+  `?all` clears it (`codemmet check` rejects `all` as a default).
+- **Builtin test triggers** `tfn` (free function) and `tmeth` (method) in
+  every pack, data-driven with public-by-default filters: Rust `#[test]`,
+  pytest, C `assert`, GoogleTest, Jest (TypeScript inherits), Go `testing`.
+  `tfn*@src.fns` with a source writes one test per public function.
+
 ## [0.4.1] - 2026-07-10
 
 ### Fixed

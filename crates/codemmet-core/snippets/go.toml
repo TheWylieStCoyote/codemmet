@@ -380,3 +380,36 @@ func Test${name}(t *testing.T) {
     $0
 }
 '''
+
+# --- Data-driven tests (SOURCE_COLLECTIONS_PLAN.md) -------------------------
+# `tfn*@src.fns` / `tmeth*@src.Point.methods` with a `--source` file: one
+# `testing` function per exported function / method.
+
+[snippets.tfn]
+description = "testing.T test calling a function (data-driven: tfn*@src.fns, exported by default)"
+filter = "vis=public?!test"
+requires = ["testing"]
+scope = "fn-body"
+body = '''
+func Test${value|pascal}(t *testing.T) {
+	got := ${value}(${value.args})
+	if got != ${1:want} {
+		t.Errorf("${value}() = %v, want %v", got, ${1:want})
+	}
+}
+'''
+
+[snippets.tmeth]
+description = "testing.T test calling a method on a constructed value (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public?!ctor"
+requires = ["testing"]
+scope = "fn-body"
+body = '''
+func Test${value.owner|pascal}${value|pascal}(t *testing.T) {
+	subject := ${value.owner}{$1}
+	got := subject.${value}(${value.args})
+	if got != ${2:want} {
+		t.Errorf("${value}() = %v, want %v", got, ${2:want})
+	}
+}
+'''

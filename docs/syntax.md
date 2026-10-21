@@ -150,6 +150,35 @@ These forms only apply to a single node (not a group or composite). See the
 [context-aware & data-driven guide](context-codegen.md) for the full model and
 the `${value}` details.
 
+#### Repeat filters: `?predicate`
+
+A data-driven repeat (`*@name` or a bare `*`) can be **narrowed** with a chain
+of predicates written right after it, no spaces:
+
+| Form | Keeps an item when… |
+| --- | --- |
+| `?key` | member `key` is present and non-empty |
+| `?!key` | member `key` is absent or empty |
+| `?key=text` | member `key` equals `text` |
+| `?key~glob` | member `key` matches `glob` (`*` matches any run of characters) |
+| `?value~glob` / `?value=text` | the item's own text matches |
+| `?all` | clear the snippet's default filter (see below), keep everything |
+
+Predicates AND together — `tfn*@src.fns?vis=public?!async` keeps the public,
+non-async functions. A filter only ever narrows: filtering a collection down
+to nothing renders **zero** copies, which is real information ("nothing
+public here"), unlike a *missing* collection, which still degrades to one
+blank-tabstop copy. A filter on a literal count (`*3`) or an inline literal
+(`*[…]`) is a parse error.
+
+A snippet may declare a **default filter** (`filter = "vis=public"` in its
+pack) that applies when the abbreviation writes no `?…` chain. The builtin
+test triggers (`tfn`, `tmeth`) do, so `tfn*@src.fns` tests the public API by
+default; a written chain *replaces* the default (`?!async` includes private
+functions too), and `?all` drops it. See [source
+collections](context-codegen.md#source-collections-functions-types-and-methods)
+for the member names a filter can test.
+
 #### The repetition index `${i}`
 
 Within a repeated node, the variable `${i}` expands to the **1-based copy

@@ -307,3 +307,19 @@ void ${name}(void) {
     $0
 }
 '''
+
+# --- Data-driven tests (SOURCE_COLLECTIONS_PLAN.md) -------------------------
+# `tfn*@src.fns` with a `--source` file: one assert-based test per non-static
+# function that returns a value (`?ret`).
+
+[snippets.tfn]
+description = "assert-based test calling a function (data-driven: tfn*@src.fns, non-static value-returning by default)"
+filter = "vis=public?ret?!test"
+requires = ["<assert.h>"]
+scope = "fn-body"
+body = '''
+static void test_${value}(void) {
+	${value.ret:int} result = ${value}(${value.args});
+	assert(result == ${1:expected});
+}
+'''

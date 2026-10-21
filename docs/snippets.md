@@ -249,6 +249,7 @@ Field by field:
 | `scope` | `[snippets.<trigger>]` | Optional. The scope `${child}` content lives in. |
 | `variants` | `[[snippets.<trigger>.variants]]` | Optional context-conditional bodies. |
 | `requires` | `[snippets.<trigger>]` (and variant entries) | Optional. [Import requirements](#import-requirements-requires): per-language specs whose imports editors insert alongside the expansion. |
+| `filter` | `[snippets.<trigger>]` | Optional. The default [repeat filter](syntax.md#repeat-filters-predicate) for data-driven repeats of this trigger, e.g. `"vis=public"` or `"vis=public?!async"` (predicates separated by `?` or spaces). Applies when the abbreviation writes no `?…` chain; a written chain replaces it and `?all` clears it. `all` itself is not a valid default. |
 | `disabled` | `[snippets.<trigger>]` | In a user pack, removes the builtin of this name. |
 | `expands` | `[snippets.<trigger>]` | Makes this a [composite](#composite-snippets): an abbreviation re-expanded at render time (mutually exclusive with `body`). |
 | `options` | `[snippets.<trigger>.options]` | Named selectable fragments for a composite; the caller picks them by name. |

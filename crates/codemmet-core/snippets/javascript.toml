@@ -332,3 +332,28 @@ test("${name}", () => {
     $0
 });
 '''
+
+# --- Data-driven tests (SOURCE_COLLECTIONS_PLAN.md) -------------------------
+# Jest shapes (TypeScript inherits them). `tfn*@src.fns` /
+# `tmeth*@src.Point.methods` with a `--source` file.
+
+[snippets.tfn]
+description = "Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default)"
+filter = "vis=public?!test?!async"
+scope = "fn-body"
+body = '''
+test("${value} works", () => {
+	expect(${value}(${value.args})).toBe(${1:expected});
+});
+'''
+
+[snippets.tmeth]
+description = "Jest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public?!static?!ctor?!async"
+scope = "fn-body"
+body = '''
+test("${value.owner}.${value} works", () => {
+	const subject = new ${value.owner}($1);
+	expect(subject.${value}(${value.args})).toBe(${2:expected});
+});
+'''

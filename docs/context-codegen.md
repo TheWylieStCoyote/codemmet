@@ -170,6 +170,48 @@ definition may sit below its use). A list binding must be **lexically in scope**
 and appear **before the cursor**; when two in-scope bindings share a name, the
 nearest one wins.
 
+### Source collections: functions, types, and methods
+
+Beyond data shapes, extraction reads a file's **API surface** into four
+collections under the reserved `src.` prefix (which never collides with your
+own type names):
+
+| Collection | Items | Members |
+| --- | --- | --- |
+| `src.fns` | free functions (top level, and inside modules/namespaces) | `name`, `params`, `args`, `ret`, `vis`, `async`, `test`, `module` |
+| `src.types` | classes, structs, enums, traits, interfaces, unions, type aliases | `name`, `kind`, `vis`, `module` |
+| `src.methods` | every method, with its `owner` | as `src.fns`, plus `owner`, `receiver`, `static`, `ctor`, `trait` |
+| `src.<Type>.methods` | the methods of one type, merged across its `impl` blocks / class body | same as `src.methods` |
+
+Every item's value is the **bare name**, so `${value}` is what you call;
+`${value.args}` is the comma-joined parameter names for the call and
+`${value.params}` the declaration as written (receiver removed). The
+collections are **complete** — private, test, and dunder functions included —
+and the [repeat filter](syntax.md#repeat-filters-predicate) narrows them:
+
+```sh
+tfn*@src.fns                       # the builtin test trigger: public functions (its default filter)
+tfn*@src.fns?!async?!test          # non-async, non-test functions, private ones included
+tmeth*@src.Point.methods?!static   # Point's instance methods
+fn*@src.fns?value~get_*            # a stub per getter
+```
+
+The current buffer always contributes its own `src.*` collections, so a Rust
+inline `mod tests` can repeat over the functions above it with nothing more.
+A test file that lives apart from the code under test names its **source**
+instead — `--source src/geometry.rs` on the CLI, a `#source` line in a
+`.codemmet` file, or `:CodemmetSource` in Neovim (see [editors](editors.md))
+— and that file's `src.*` (and enum/struct) collections replace the buffer's.
+`codemmet vars FILE` prints everything a file yields, members included.
+
+Naming a source also sets the **`${src.*}` variables** a body can reference:
+`${src.module}` is the language's import spelling of the file (Rust
+`crate::shapes::point`, Python `shapes.point`, Go the `package` name, C/C++
+`point.h`, JS/TS `./point`), with `${src.file}`, `${src.stem}`, `${src.dir}`,
+and `${src.path}` beside it. They take the same `|transform` and `:default`
+suffixes as `${value}`; without a source they render as a tabstop carrying
+the default (or the key), never as silent empty text.
+
 ### Member vocabulary
 
 Beyond `type`, extraction fills a small **blessed vocabulary** of members
@@ -185,6 +227,19 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `default` | initializer text | Python `x: int = 0` |
 | `name` | the bare name, when the value is a richer form | Rust variants (value `Write(..)`, name `Write`) |
 | `value` | an enum member's assigned value | C `GREEN = 2`, TS `Green = 2`, Python `GREEN = 2` |
+| `params` | the declared parameter list as written, receiver removed | `src.*` functions and methods (`w: f64, h: f64`) |
+| `args` | the parameter **names**, comma-joined — for a call | `src.*` (`w, h`; Python keeps `*args, **kw`) |
+| `ret` | the return type, arrow/colon stripped; absent for none/`void` | `src.*` (`f64`, `(int, error)`, `double*`) |
+| `vis` (on `src.*`) | **normalized** visibility: `public`, `private`, `protected` | Rust `pub`/trait impls; Python leading `_`; C `static`; C++ access sections; JS/TS `export`/`private`/`#name`; Go capitalization |
+| `async` | `async ` (display-ready prefix) | Rust, Python, JS/TS async functions |
+| `static` | `static` on methods without a receiver / marked static | Rust associated fns, Python `@staticmethod`, C++/JS/TS `static` |
+| `receiver` | the receiver as written | Rust `&mut self`, Python `self`/`cls`, Go `p *Point` |
+| `owner` | the type a method belongs to | `src.methods` |
+| `trait` | the trait an `impl Trait for Type` method implements | Rust |
+| `ctor` | `ctor` on constructors | Rust `new`, Python `__init__`, C++ `Point()`, JS/TS `constructor` |
+| `kind` | `struct`, `enum`, `class`, `trait`, `interface`, `union`, `type` | `src.types` |
+| `test` | `test` on test functions | Rust `#[test]`/`#[*::test]`, Python `test_*`, Go `Test*` |
+| `module` | the enclosing module / namespace path | Rust `mod`, C++ `namespace`, TS `namespace` |
 
 Prefix/suffix members are **display-ready**: they carry their own spacing and
 punctuation (`vis` is `pub ` with a trailing space, `optional` is the bare

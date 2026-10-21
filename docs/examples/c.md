@@ -637,6 +637,37 @@ typedef int name_t;
 
 `td` takes no arguments and leaves tabstops for the underlying type (defaulting to `int`) and the new type name.
 
+### `tfn`
+
+assert-based test calling a function (data-driven).
+
+Given a source file `geometry.c`:
+
+```c
+int area(int w, int h) { return w * h; }
+static void helper(void) {}
+```
+
+```sh
+codemmet expand --lang c --source geometry.c "tfn*@src.fns"
+```
+
+```c
+static void test_area(void) {
+    int result = area(w, h);
+    assert(result == expected);
+}
+```
+
+One test per function in `src.fns` — the file's free functions — with the
+call's arguments filled from `${value.args}`. `tfn` carries a **default
+filter** (public, non-test, value-returning), which is why `helper` (file-private `static`, and it returns nothing) got no test; write your own
+chain to change that (`tfn*@src.fns?all` for everything, `?!async` to include
+private functions too). Bare `tfn` is the same body with tabstops. See
+[source collections](../context-codegen.md#source-collections-functions-types-and-methods)
+and [repeat filters](../syntax.md#repeat-filters-predicate); `:CodemmetSource`
+sets the source in Neovim.
+
 ### `todo`
 
 TODO comment.

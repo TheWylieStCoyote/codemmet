@@ -246,3 +246,29 @@ TEST(${name}, ${1:works}) {
     $0
 }
 '''
+
+# --- Data-driven tests (SOURCE_COLLECTIONS_PLAN.md) -------------------------
+# GoogleTest shapes; `tfn` overrides the C pack's assert-based one.
+
+[snippets.tfn]
+description = "GoogleTest TEST calling a function (data-driven: tfn*@src.fns, public by default)"
+filter = "vis=public?!test"
+requires = ["<gtest/gtest.h>"]
+scope = "fn-body"
+body = '''
+TEST(${value|pascal}Test, Works) {
+	EXPECT_EQ(${value}(${value.args}), ${1:expected});
+}
+'''
+
+[snippets.tmeth]
+description = "GoogleTest TEST calling a method on a constructed object (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public?!static?!ctor"
+requires = ["<gtest/gtest.h>"]
+scope = "fn-body"
+body = '''
+TEST(${value.owner}Test, ${value|pascal}) {
+	${value.owner} subject$1;
+	EXPECT_EQ(subject.${value}(${value.args}), ${2:expected});
+}
+'''

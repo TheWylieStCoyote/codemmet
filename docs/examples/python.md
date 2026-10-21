@@ -784,6 +784,65 @@ def test_parses():
 
 The `>` child operator nests an equality assertion inside the test.
 
+### `tfn`
+
+pytest test calling a function (data-driven).
+
+Given a source file `geometry.py`:
+
+```python
+def area(w, h):
+    return w * h
+
+class Point:
+    def __init__(self, x):
+        self.x = x
+    def length(self):
+        return self.x
+```
+
+```sh
+codemmet expand --lang python --source geometry.py "tfn*@src.fns"
+```
+
+```python
+def test_area():
+    result = area(w, h)
+    assert result == expected
+```
+
+One test per function in `src.fns` — the file's free functions — with the
+call's arguments filled from `${value.args}`. `tfn` carries a **default
+filter** (public, non-test, non-async), which is why `__init__` got no test; write your own
+chain to change that (`tfn*@src.fns?all` for everything, `?!async` to include
+private functions too). Bare `tfn` is the same body with tabstops. See
+[source collections](../context-codegen.md#source-collections-functions-types-and-methods)
+and [repeat filters](../syntax.md#repeat-filters-predicate); `:CodemmetSource`
+sets the source in Neovim.
+
+### `tmeth`
+
+pytest test calling a method on a constructed instance (data-driven).
+
+With the same `geometry.py` as under [`tfn`](#tfn):
+
+```sh
+codemmet expand --lang python --source geometry.py "tmeth*@src.Point.methods"
+```
+
+```python
+def test_point_length():
+    subject = Point()
+    result = subject.length()
+    assert result == expected
+```
+
+One test per method of `Point` (`src.Point.methods`; `src.methods` is every
+type's methods with an `owner` member). The default filter keeps public
+instance methods — constructors, statics, and async methods are skipped — so the
+constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
+lifts the filter.
+
 ### `todo`
 
 TODO comment.

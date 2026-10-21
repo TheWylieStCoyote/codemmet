@@ -775,6 +775,63 @@ typedef int name_t;
 
 Inherited unchanged from C. Declares a `typedef` alias for an existing type.
 
+### `tfn`
+
+GoogleTest TEST calling a function (data-driven).
+
+Given a source file `geometry.cpp`:
+
+```cpp
+int area(int w, int h) { return w * h; }
+class Point {
+public:
+    Point(int x);
+    double length() const;
+};
+```
+
+```sh
+codemmet expand --lang cpp --source geometry.cpp "tfn*@src.fns"
+```
+
+```cpp
+TEST(AreaTest, Works) {
+    EXPECT_EQ(area(w, h), expected);
+}
+```
+
+One test per function in `src.fns` — the file's free functions — with the
+call's arguments filled from `${value.args}`. `tfn` carries a **default
+filter** (public, non-test), which is why the constructor got no test; write your own
+chain to change that (`tfn*@src.fns?all` for everything, `?!async` to include
+private functions too). Bare `tfn` is the same body with tabstops. See
+[source collections](../context-codegen.md#source-collections-functions-types-and-methods)
+and [repeat filters](../syntax.md#repeat-filters-predicate); `:CodemmetSource`
+sets the source in Neovim.
+
+### `tmeth`
+
+GoogleTest TEST calling a method on a constructed object (data-driven).
+
+With the same `geometry.cpp` as under [`tfn`](#tfn):
+
+```sh
+codemmet expand --lang cpp --source geometry.cpp "tmeth*@src.Point.methods"
+```
+
+```cpp
+TEST(PointTest, Length) {
+    Point subject;
+    EXPECT_EQ(subject.length(), expected);
+}
+```
+
+One test per method of `Point` (`src.Point.methods`; `src.methods` is every
+type's methods with an `owner` member). The default filter keeps public
+instance methods — constructors, statics are skipped — so the
+constructed `subject` is the receiver of every call. `tmeth*@src.Point.methods?all`
+lifts the filter.
+
 ### `todo`
 
 TODO comment.

@@ -477,3 +477,35 @@ fn ${name}() {
     $0
 }
 '''
+
+# --- Data-driven tests (SOURCE_COLLECTIONS_PLAN.md) -------------------------
+# `tfn*@src.fns` / `tmeth*@src.Point.methods` with a `--source` file (or
+# `:CodemmetSource`): one test per public function / instance method. The
+# default filters skip what the body cannot test as written (async needs a
+# runtime; statics, constructors, and trait impls need their own shape) —
+# override with `?all` or your own `?…` chain.
+
+[snippets.tfn]
+description = "test calling a function (data-driven: tfn*@src.fns, public non-async by default)"
+filter = "vis=public?!test?!async"
+scope = "fn-body"
+body = '''
+#[test]
+fn ${value|snake}_works() {
+	let result = ${value}(${value.args});
+	assert_eq!(result, ${1:expected});
+}
+'''
+
+[snippets.tmeth]
+description = "test calling a method on a constructed value (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public?!static?!ctor?!async?!trait"
+scope = "fn-body"
+body = '''
+#[test]
+fn ${value.owner|snake}_${value|snake}_works() {
+	let subject = ${value.owner}::new($1);
+	let result = subject.${value}(${value.args});
+	assert_eq!(result, ${2:expected});
+}
+'''

@@ -44,6 +44,9 @@ The `[ABBR]` positional argument is the abbreviation to expand. If you omit it, 
 | `--indent <STR>` | The literal indent unit, either a single tab or a run of spaces. Defaults to the language profile's indent. |
 | `--base-indent <STR>` | Default empty. A prefix prepended to every continuation line. The first line is not prefixed, because the caller is assumed to already be at the correct column. |
 | `--json` | Print one JSON object instead of plain text. See below. |
+| `--repeat <NAME=v1,v2,…>` | Supply a collection for a data-driven repeat (repeatable); each value may carry a member as `value:type`. See [data-driven repeats](context-codegen.md#data-driven-repeats). |
+| `--member <NAME.key=v1,v2,…>` | Attach a parallel value list as member `key` of a `--repeat` collection, one slot per item. |
+| `--source <FILE>` | A source file whose functions, types, methods, enums, and struct fields become collections (`src.fns`, `src.Point.methods`, `Msg`, …) and whose path sets the `${src.*}` variables. `--repeat` collections layer on top. See [source collections](context-codegen.md#source-collections-functions-types-and-methods). |
 
 With `--tabstops keep`, codemmet emits snippet syntax:
 
@@ -147,6 +150,7 @@ cat main.rs.codemmet | codemmet      # bare filter: piped stdin, no arguments
 | `--lang <ID>` | The language, as for `expand`. A `#lang` directive overrides it; the file name's inner extension (`NAME.EXT.codemmet`) is the fallback. An error when none of the three resolves. |
 | `--indent <STR>` | Same as for `expand`. |
 | `--repeat <NAME=v1,v2,…>` | Seed a collection for data-driven repeats, as for `expand`. A same-name `#repeat` directive overrides it. |
+| `--source <FILE>` | The source file for `src.*` collections and `${src.*}` variables, as for `expand`. A `#source` directive overrides it from its line down. |
 | `--tabstops <keep\|strip>` | Default `strip`: plain code. With `keep`, the whole file is emitted as **one valid LSP snippet document**: every line's tabstops are renumbered across the file in document order (mirrors stay linked within their own line), every `$0` except the last line's demotes to a plain numbered stop — so tabbing walks construct to construct — and exactly one final `$0` survives. |
 
 There is no `--json` and no `--base-indent`: leading whitespace on an
@@ -182,6 +186,11 @@ comments:
 - `#repeat NAME=v1,v2,…` — define a collection for data-driven repeats, with
   exactly the `--repeat` flag's syntax (including `value:type` members). It
   applies from its line down, and a re-declaration shadows the earlier one.
+- `#source PATH` — the file whose functions, types, and methods feed the
+  `src.*` collections and whose path sets `${src.*}` (see [source
+  collections](context-codegen.md#source-collections-functions-types-and-methods)).
+  Applies from its line down; a later `#source` switches files. Collection
+  precedence is buffer-extracted < source < `--repeat` < `#repeat`.
 - `# a comment` — `#` followed by whitespace (or alone) is a comment,
   dropped from the output. `#word` with an unknown word is a hard error, so
   a misspelled directive never silently disappears.
@@ -367,6 +376,44 @@ codemmet list --lang rust
 ```
 
 The plain-text output is one `trigger<TAB>description` per line, sorted by trigger.
+
+## vars
+
+Print the collections a source file yields for data-driven repeats: the
+`src.*` API-surface collections (functions, types, methods, with every
+member) and the data-shape ones (enum variants, struct fields). It shows
+exactly what an expansion sees with `--source FILE`, so it is both the way to
+learn what a template can reference and the extractor's oracle.
+
+```sh
+codemmet vars [OPTIONS] <FILE>
+```
+
+| Option | Description |
+| --- | --- |
+| `<FILE>` | The source file to read. |
+| `--lang <ID>` | The language, as for `expand`. Default: inferred from the file's extension (an error when it cannot be, so pass `--lang`). |
+| `--json` | Print one `{"language","path","collections":[{"name","items":[{"value","members"}]}]}` object. |
+
+```sh
+codemmet vars src/geometry.rs
+```
+
+```text
+src.Point.methods:
+  new  args="x, y" ctor="ctor" owner="Point" params="x: f64, y: f64" ret="Self" static="static" vis="public"
+  len  owner="Point" receiver="&self" ret="f64" vis="public"
+
+src.fns:
+  area    args="w, h" params="w: f64, h: f64" ret="f64" vis="public"
+  helper  vis="private"
+
+src.types:
+  Point  kind="struct" vis="public"
+```
+
+Requires the default tree-sitter build; a `--no-default-features` binary
+prints `(no collections)`.
 
 ## check
 

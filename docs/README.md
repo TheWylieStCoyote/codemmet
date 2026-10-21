@@ -42,7 +42,8 @@ New to codemmet? Read these in order:
   (`match:Msg>arm*`).
 - **[CLI reference](cli.md)** — the `expand`, `render` (file mode: multi-line
   `.codemmet` source files, `cat main.rs.codemmet | codemmet >> main.rs`),
-  `wrap`, `list`, `check`, and `lsp` subcommands, their flags, and exit codes.
+  `wrap`, `list`, `vars`, `check`, and `lsp` subcommands, their flags, and
+  exit codes.
 - **[Trainer](trainer.md)** — the `train` subcommand: modes, keys, spaced
   repetition, and progress files.
 - **[Examples](examples/README.md)** — longer, real-world abbreviations that

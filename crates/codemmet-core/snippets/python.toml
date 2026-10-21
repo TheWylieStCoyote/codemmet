@@ -381,3 +381,28 @@ body = '''
 def test_${name}():
     $0
 '''
+
+# --- Data-driven tests (SOURCE_COLLECTIONS_PLAN.md) -------------------------
+# `tfn*@src.fns` / `tmeth*@src.Point.methods` with a `--source` file: one
+# pytest function per public function / instance method.
+
+[snippets.tfn]
+description = "pytest test calling a function (data-driven: tfn*@src.fns, public non-async by default)"
+filter = "vis=public?!test?!async"
+scope = "fn-body"
+body = '''
+def test_${value|snake}():
+	result = ${value}(${value.args})
+	assert result == ${1:expected}
+'''
+
+[snippets.tmeth]
+description = "pytest test calling a method on a constructed instance (data-driven: tmeth*@src.Type.methods)"
+filter = "receiver=self?vis=public?!ctor?!async"
+scope = "fn-body"
+body = '''
+def test_${value.owner|snake}_${value|snake}():
+	subject = ${value.owner}($1)
+	result = subject.${value}(${value.args})
+	assert result == ${2:expected}
+'''
