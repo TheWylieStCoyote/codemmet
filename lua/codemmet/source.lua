@@ -79,7 +79,8 @@ local function send(bufnr, client, path, notify)
     if not notify then
       return
     end
-    if result and result.source then
+    -- JSON null arrives as `vim.NIL`, which is truthy in Lua.
+    if result and result.source and result.source ~= vim.NIL then
       local n = result.collections and #result.collections or 0
       vim.notify(
         string.format(
