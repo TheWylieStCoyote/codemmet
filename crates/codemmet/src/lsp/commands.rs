@@ -374,6 +374,9 @@ pub fn set_source(
     {
         path = dir.join(path);
     }
+    // `tests/../src/geometry.py` → `src/geometry.py`: the path is reported
+    // back and feeds `${src.dir}`, so keep it clean.
+    let path = normalize(&path);
     if !path.is_file() {
         return Err(CommandError(format!(
             "source `{}` is not a readable file",
@@ -390,6 +393,26 @@ pub fn set_source(
     })?;
     let names: Vec<&String> = source.collections.keys().collect();
     Ok(serde_json::json!({ "source": source.path, "collections": names }))
+}
+
+/// Resolve `.` and `..` components lexically (no filesystem access, no
+/// symlink resolution), so a source given relative to the document reads as
+/// a plain path.
+fn normalize(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Merge the document's explicit source (if any) into `ctx`.
@@ -465,4 +488,28 @@ fn result(range: Range, snippet: &str, extra_edits: &[TextEdit]) -> serde_json::
         value["extraEdits"] = edits;
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize;
+    use std::path::Path;
+
+    #[test]
+    fn normalize_resolves_dot_components_lexically() {
+        assert_eq!(
+            normalize(Path::new("/proj/tests/../src/geometry.py")),
+            Path::new("/proj/src/geometry.py")
+        );
+        assert_eq!(
+            normalize(Path::new("/proj/./src/./geo.rs")),
+            Path::new("/proj/src/geo.rs")
+        );
+        // Climbing past the start keeps the `..` rather than inventing a root.
+        assert_eq!(
+            normalize(Path::new("../src/x.rs")),
+            Path::new("../src/x.rs")
+        );
+        assert_eq!(normalize(Path::new("a/../../x")), Path::new("../x"));
+    }
 }

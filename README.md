@@ -62,7 +62,8 @@ details and how to verify the install.
 
 Full guides live in **[docs/](docs/README.md)** — start with
 [installation](docs/installation.md), then the [tutorials](docs/tutorials.md)
-and [editor setup](docs/editors.md). Reference: [abbreviation
+and [editor setup](docs/editors.md); [generating tests from
+code](docs/testing.md) covers the test-generation workflow end to end. Reference: [abbreviation
 syntax](docs/syntax.md), [language reference](docs/languages.md), [CLI
 reference](docs/cli.md), [custom snippets](docs/snippets.md), and
 [troubleshooting](docs/troubleshooting.md).

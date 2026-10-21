@@ -70,6 +70,11 @@ follows [Semantic Versioning](https://semver.org/).
   passing the trigger's default filter whose name the buffer does not mention,
   appended at the end of the file as one plain-text edit. Re-run it after
   adding a function to the source to get just that test.
+- **Guide: generating tests from code** (`docs/testing.md`) — the whole
+  flow on one example with real outputs: `vars`, `tfn`/`tmeth`/`tfile`,
+  filters, `:CodemmetSource`, the `codemmet.setSource` / `codemmet.context` /
+  `codemmet.expand` exchanges and the code action for any LSP client, custom
+  templates with `*@outer.params`, per-language shapes, troubleshooting.
 - **Docs and tests.** A tutorial chapter ("Generating tests from a file")
   with the exact outputs, the Neovim flow in the editor guide, and a headless
   end-to-end test (`tests/nvim/source.lua`) covering `:CodemmetSource`,
@@ -81,6 +86,8 @@ follows [Semantic Versioning](https://semver.org/).
   subcommand writing to stdout) used to end with a "failed printing to
   stdout: Broken pipe" backtrace once the reader closed; the CLI now exits
   quietly with status 0, like other filters.
+- **Relative `codemmet.setSource` paths are normalized** (`tests/../src/x.py`
+  → `src/x.py`) before being reported and used for `${src.dir}`.
 - **Repeat filter values are one operator only.** `?vis==` and `?vis=~x`
   are rejected instead of comparing against `=`.
 

@@ -562,7 +562,10 @@ codemmet scaffold --lang python --source geometry.py tfile --write
 ```
 
 (`:CodemmetScaffold tfile` in Neovim.) Rust's `tfile` appends an inline
-`#[cfg(test)] mod tests` to the source file instead. Every language has `tfn` and `tmeth` (pytest, C `assert`,
+`#[cfg(test)] mod tests` to the source file instead. The dedicated guide,
+[generating tests from code](testing.md), continues from here: the raw LSP
+commands for other editors, the "add missing tests" code action, and writing
+your own test templates. Every language has `tfn` and `tmeth` (pytest, C `assert`,
 GoogleTest, Jest, Go `testing`); see [editor setup](editors.md#generating-tests-from-a-source-file)
 for the editor side and [source
 collections](context-codegen.md#source-collections-functions-types-and-methods)
@@ -575,5 +578,6 @@ for the member vocabulary and `${src.module}`.
 - [custom snippets](snippets.md) — author and override your own packs
 - [CLI reference](cli.md) — all commands and flags
 - [editor setup](editors.md) — the LSP server and Neovim plugin
+- [generating tests from code](testing.md) — the test-generation workflow, CLI to LSP
 - [troubleshooting](troubleshooting.md) — when something does not expand
 - [documentation home](README.md)

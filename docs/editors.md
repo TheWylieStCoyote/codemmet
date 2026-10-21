@@ -308,6 +308,10 @@ path (absolute, or relative to the document's directory) stores it and returns
 yields; `{ uri, source: null }` clears it. Any LSP client can drive it the
 same way.
 
+The full workflow, including the raw LSP exchanges for other editors and
+how to customize the generated tests, is in [generating tests from
+code](testing.md).
+
 Two things to check if nothing happens: the plugin launches `codemmet lsp`
 from your `PATH`, so the binary there must be one that knows
 `codemmet.setSource` (run `codemmet vars <file>`; an older binary rejects

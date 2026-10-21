@@ -29,6 +29,9 @@ New to codemmet? Read these in order:
    LSP-capable editor.
 4. **[Trainer](trainer.md)** — learn the syntax interactively with
    `codemmet train`: guided lessons, drills, and spaced repetition.
+5. **[Generating tests from code](testing.md)** — point codemmet at a source
+   file and get one test per function and method, from the CLI, Neovim, or
+   any LSP client; then shape the tests to your conventions.
 
 ## Reference
 
@@ -36,6 +39,9 @@ New to codemmet? Read these in order:
   and the `>` `+` `*` `^` `()` composition operators.
 - **[Language reference](languages.md)** — every trigger for each of the seven
   languages, with descriptions.
+- **[Generating tests from code](testing.md)** — the end-to-end guide:
+  `vars`, `tfn`/`tmeth`/`tfile`, filters, `:CodemmetSource`, the raw LSP
+  commands, the "add missing tests" code action, and custom test templates.
 - **[Context-aware & data-driven expansion](context-codegen.md)** — how codemmet
   reads the surrounding code: scope-specific variants (`fn` in `impl` gains
   `&self`) and repeats driven by enum variants, struct fields, or in-scope lists
