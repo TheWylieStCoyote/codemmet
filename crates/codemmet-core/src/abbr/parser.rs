@@ -24,7 +24,7 @@
 
 use std::ops::Range;
 
-use super::{AbbrNode, Abbreviation, ParseError, Repeat};
+use super::{AbbrNode, Abbreviation, Filter, ParseError, Predicate, Repeat};
 
 /// Maximum accepted `*n` repeat count.
 const MAX_REPEAT: u32 = 100;
@@ -223,7 +223,8 @@ impl Parser<'_> {
             let star = self.here();
             self.bump();
             let start = self.pos;
-            let repeat = self.repeat_spec(star)?;
+            let mut repeat = self.repeat_spec(star.clone())?;
+            self.filters_into(&mut repeat, star)?;
             (repeat, start..self.pos)
         } else {
             (Repeat::Count(1), 0..self.input.len())
@@ -339,12 +340,52 @@ impl Parser<'_> {
                 {
                     return Err(err("expected a name after '*@'", star));
                 }
-                Ok(Repeat::Source(self.dotted_word()))
+                Ok(Repeat::Source {
+                    name: self.dotted_word(),
+                    filter: Filter::default(),
+                })
             }
             Some('[') => self.inline_spec(star),
             Some(c) if c.is_ascii_digit() => Ok(Repeat::Count(self.repeat_count(star)?)),
-            _ => Ok(Repeat::Subject),
+            _ => Ok(Repeat::subject()),
         }
+    }
+
+    /// The `?predicate` chain after a repeat spec (`*@src.fns?vis=public?!async`),
+    /// attached to a data-driven repeat. A predicate runs to the next `?`,
+    /// operator, or whitespace; `?all` clears the snippet's default filter.
+    fn filters_into(&mut self, repeat: &mut Repeat, star: Range<usize>) -> Result<(), ParseError> {
+        while self.peek() == Some('?') {
+            let q = self.here();
+            self.bump();
+            let start = self.pos;
+            // A predicate ends at the next `?`, whitespace, or structural
+            // operator. `*` is NOT a terminator here: it is the glob wildcard
+            // (`?value~get_*`), and a second repeat cannot follow anyway.
+            while self.peek().is_some_and(|c| {
+                c != '?' && !c.is_whitespace() && !matches!(c, '>' | '+' | ',' | '(' | ')' | '^')
+            }) {
+                self.bump();
+            }
+            let token = &self.input[start..self.pos];
+            let span = q.start..self.pos;
+            let filter = match repeat {
+                Repeat::Source { filter, .. } | Repeat::Subject { filter } => filter,
+                Repeat::Count(_) | Repeat::Inline(_) => {
+                    return Err(err(
+                        "a filter (`?…`) applies only to a data-driven repeat (`*@name` or a bare `*`)",
+                        star,
+                    ));
+                }
+            };
+            if token == "all" {
+                filter.all = true;
+            } else {
+                let predicate = Predicate::parse(token).map_err(|message| err(message, span))?;
+                filter.predicates.push(predicate);
+            }
+        }
+        Ok(())
     }
 
     /// The inline collection literal after `*`: `[a,b,c]` (each value optionally
@@ -490,7 +531,7 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{AbbrNode, ParseError, Repeat};
+    use super::super::{AbbrNode, ParseError, Predicate, Repeat};
     use super::parse;
 
     /// A bare node with the given word and all other fields defaulted.
@@ -779,20 +820,65 @@ mod tests {
     #[test]
     fn bare_star_is_data_driven_over_the_subject() {
         let nodes = parse("a*").expect("a bare `*` is valid (data-driven)").0;
-        assert_eq!(nodes[0].repeat, Repeat::Subject);
+        assert_eq!(nodes[0].repeat, Repeat::subject());
+    }
+
+    #[test]
+    fn repeat_filters_attach_to_data_driven_repeats() {
+        let nodes = parse("tfn*@src.fns?vis=public?!async>pr")
+            .expect("filters are valid")
+            .0;
+        let Repeat::Source { name, filter } = &nodes[0].repeat else {
+            panic!("expected a source repeat");
+        };
+        assert_eq!(name, "src.fns");
+        assert!(!filter.all);
+        assert_eq!(filter.predicates.len(), 2);
+        assert_eq!(
+            filter.predicates[0],
+            Predicate::parse("vis=public").expect("predicate should parse")
+        );
+        assert_eq!(
+            filter.predicates[1],
+            Predicate::parse("!async").expect("predicate should parse")
+        );
+        assert_eq!(nodes[0].children.len(), 1);
+
+        // Bare `*` takes a filter too; `?all` is the explicit no-default marker;
+        // a glob may contain `*` without being read as another repeat.
+        let nodes = parse("arm*?all?value~Move*+pr").expect("valid").0;
+        let Repeat::Subject { filter } = &nodes[0].repeat else {
+            panic!("expected a subject repeat");
+        };
+        assert!(filter.all);
+        assert_eq!(
+            filter.predicates[0],
+            Predicate::parse("value~Move*").expect("predicate should parse")
+        );
+        assert_eq!(nodes.len(), 2);
+    }
+
+    #[test]
+    fn repeat_filter_errors() {
+        let e = parse_err("fn*3?vis=public");
+        assert!(e.message.contains("data-driven"), "{}", e.message);
+        let e = parse_err("fn*[a,b]?vis");
+        assert!(e.message.contains("data-driven"), "{}", e.message);
+        let e = parse_err("fn*@Msg?vis=");
+        assert!(e.message.contains("missing a value"), "{}", e.message);
+        assert_eq!(e.span, 7..12);
+        let e = parse_err("fn*@Msg?");
+        assert!(e.message.contains("member name"), "{}", e.message);
     }
 
     #[test]
     fn star_at_names_an_explicit_source() {
         let nodes = parse("a*@Msg").expect("`*@name` is valid").0;
-        assert_eq!(nodes[0].repeat, Repeat::Source("Msg".to_string()));
+        assert_eq!(nodes[0].repeat, Repeat::source("Msg"));
         let nodes = parse("tfn*@src.Point.methods>pr")
             .expect("a dotted `*@name` is valid")
             .0;
-        assert_eq!(
-            nodes[0].repeat,
-            Repeat::Source("src.Point.methods".to_string())
-        );
+        assert_eq!(nodes[0].repeat, Repeat::source("src.Point.methods"));
         assert_eq!(nodes[0].children.len(), 1);
     }
 

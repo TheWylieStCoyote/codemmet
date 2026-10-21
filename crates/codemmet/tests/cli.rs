@@ -1489,3 +1489,84 @@ fn render_source_directive_feeds_src_collections() {
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
     assert_eq!(stdout(&out), "def test_area():\n\ndef test__helper():\n\n");
 }
+
+// ---------------------------------------------------------------------------
+// Repeat filters (SOURCE_COLLECTIONS_PLAN.md, milestone 3)
+// ---------------------------------------------------------------------------
+
+/// `?predicate` chains narrow a data-driven repeat; a pack-level `filter`
+/// is the default when none is written and `?all` clears it.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn expand_repeat_filters_and_pack_default_filter() {
+    let dir = scratch_dir("expand-filters");
+    std::fs::write(
+        dir.join("rust.toml"),
+        "[meta]\nlanguage = \"rust\"\n\n[snippets.tpub]\nfilter = \"vis=public\"\nbody = \"// ${value}\"\n",
+    )
+    .expect("pack should be writable");
+    let src = dir.join("geo.rs");
+    std::fs::write(
+        &src,
+        "pub fn area() {}\nfn helper() {}\npub async fn fetch() {}\n#[test]\nfn it_works() {}\n",
+    )
+    .expect("fixture should be writable");
+    let expand = |abbr: &str| {
+        let out = bin()
+            .args(["expand", "--lang", "rust", "--source"])
+            .arg(&src)
+            .arg(abbr)
+            .arg("--config")
+            .arg(&dir)
+            .output()
+            .expect("binary should run");
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        stdout(&out)
+    };
+    // Pack default: public only.
+    assert_eq!(expand("tpub*@src.fns"), "// area\n// fetch\n");
+    // A written chain replaces the default; predicates AND together.
+    assert_eq!(expand("tpub*@src.fns?!async?!test"), "// area\n// helper\n");
+    assert_eq!(
+        expand("tpub*@src.fns?all"),
+        "// area\n// helper\n// fetch\n// it_works\n"
+    );
+    assert_eq!(expand("tpub*@src.fns?value~*_*"), "// it_works\n");
+    // Nothing left: zero copies, not a blank scaffold.
+    assert_eq!(expand("tpub*@src.fns?vis=protected"), "\n");
+}
+
+#[test]
+fn expand_filter_on_literal_count_is_a_parse_error() {
+    let out = run(
+        "expand-filter-count",
+        &["expand", "--lang", "rust", "pr*2?vis=public"],
+    );
+    assert_eq!(code(&out), 1);
+    assert!(
+        stderr(&out).contains("data-driven"),
+        "stderr: {}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn check_rejects_all_as_a_default_filter() {
+    let dir = scratch_dir("check-filter-all");
+    std::fs::write(
+        dir.join("rust.toml"),
+        "[meta]\nlanguage = \"rust\"\n\n[snippets.tbad]\nfilter = \"all\"\nbody = \"x\"\n",
+    )
+    .expect("pack should be writable");
+    let out = bin()
+        .args(["check", "--config"])
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 3);
+    assert!(
+        stderr(&out).contains("`all` is not a default"),
+        "stderr: {}",
+        stderr(&out)
+    );
+}

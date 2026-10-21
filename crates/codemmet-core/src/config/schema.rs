@@ -62,6 +62,13 @@ pub struct SnippetDef {
     /// expansion when missing. See `lang::imports` for the spec forms.
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Default repeat filter for data-driven repeats of this trigger
+    /// (`filter = "vis=public"`): applied when the abbreviation writes no
+    /// `?…` chain; a written chain replaces it and `?all` clears it. The
+    /// predicate grammar is the abbreviation's (`key`, `!key`, `key=text`,
+    /// `key~glob`), separated by `?` or whitespace.
+    #[serde(default)]
+    pub filter: Option<String>,
     /// A **multi-file** snippet: `[snippets.<trigger>.files.<label>]` sections,
     /// each targeting a file with its own `body`/`expands`. Mutually exclusive
     /// with a top-level `body`/`expands`. See `MULTIFILE_SNIPPETS.md`.

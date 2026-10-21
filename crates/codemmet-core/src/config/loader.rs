@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use crate::abbr::{Filter, Predicate};
 use crate::config::schema::{FileDef, OnExists, ParamDef, SnippetDef, SnippetFile};
 use crate::context::Scope;
 use crate::snippet::ir::{Span, Template};
@@ -30,6 +31,10 @@ pub struct CompiledSnippet {
     /// language at compile time when supported (see `lang::imports`); they
     /// are formatted into import lines at the point of use.
     pub requires: Vec<String>,
+    /// The default repeat filter (`filter = "vis=public"`): the predicates a
+    /// data-driven repeat of this trigger applies when the abbreviation
+    /// writes no `?…` chain of its own. Empty means no default.
+    pub filter: Vec<Predicate>,
     /// Set when this trigger is a **composite** (alias): its expansion is an
     /// abbreviation re-expanded at render time rather than [`Self::template`]
     /// (which is empty for a composite). See `COMPOSITE_SNIPPETS.md`.
@@ -598,6 +603,8 @@ fn compile_snippet(
 
     check_param_references(&invalid, def, &template, &variants, &declared)?;
 
+    let filter = compile_filter(&invalid, def.filter.as_deref())?;
+
     Ok(CompiledSnippet {
         trigger: trigger.to_owned(),
         description: def.description.clone(),
@@ -606,9 +613,30 @@ fn compile_snippet(
         scope: def.scope.clone(),
         variants,
         requires: def.requires.clone(),
+        filter,
         composite: None,
         multifile: None,
     })
+}
+
+/// Parse a snippet's default `filter` spec. `all` is meaningless as a
+/// default (it is the abbreviation-side marker for "no default").
+fn compile_filter(
+    invalid: &impl Fn(String) -> ConfigError,
+    spec: Option<&str>,
+) -> Result<Vec<Predicate>, ConfigError> {
+    let Some(spec) = spec else {
+        return Ok(Vec::new());
+    };
+    let filter = Filter::parse(spec).map_err(|message| invalid(format!("filter: {message}")))?;
+    if filter.all {
+        return Err(invalid(
+            "filter: `all` is not a default (omit `filter` to keep every item; \
+             `?all` belongs in the abbreviation)"
+                .to_owned(),
+        ));
+    }
+    Ok(filter.predicates)
 }
 
 /// Cross-check `${name}` references against declared params: every reference
@@ -760,6 +788,7 @@ fn compile_composite(
         // A composite's own requires; the requires of the snippets its
         // expansion references are aggregated at render time.
         requires: def.requires.clone(),
+        filter: Vec::new(),
         composite: Some(CompiledComposite {
             expands: expands.to_owned(),
             options: def.options.clone(),
@@ -854,6 +883,7 @@ fn compile_multifile(
         variants: Vec::new(),
         composite: None,
         requires: def.requires.clone(),
+        filter: Vec::new(),
         multifile: Some(CompiledMultiFile { files }),
     })
 }

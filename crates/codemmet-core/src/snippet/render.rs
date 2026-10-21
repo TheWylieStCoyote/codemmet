@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 
 use std::collections::BTreeMap;
 
-use crate::abbr::{AbbrNode, Abbreviation, Repeat};
+use crate::abbr::{AbbrNode, Abbreviation, Filter, Predicate, Repeat};
 use crate::config::loader::{
     CHILD_SENTINEL, CompiledComposite, CompiledSnippet, CompiledVariant, SnippetSet,
     parse_scope_name, substitute_child_slot, substitute_markers,
@@ -392,7 +392,7 @@ impl Composer<'_> {
         // One entry per copy: `Some(item)` for a data-driven repeat, `None`
         // for a literal `*n` copy or a data-driven repeat with no resolvable
         // collection (which degrades to a single copy).
-        let items = self.resolve_items(&node.repeat, subject);
+        let items = self.resolve_items(&node.repeat, subject, &snippet.filter);
         // This node's `${outer}` is the innermost enclosing data-driven item.
         let outer = self.outer_stack.last().cloned();
         let mut out = Vec::new();
@@ -487,7 +487,7 @@ impl Composer<'_> {
         let count = match node.repeat {
             Repeat::Count(n) => n,
             // Unreachable: the data-driven guard above already returned.
-            Repeat::Source(_) | Repeat::Subject | Repeat::Inline(_) => 1,
+            Repeat::Source { .. } | Repeat::Subject { .. } | Repeat::Inline(_) => 1,
         };
         // The composite's own requires; the snippets its expansion references
         // add theirs as the re-expanded abbreviation composes through
@@ -583,17 +583,36 @@ impl Composer<'_> {
     /// `None`s for a literal `*n`. A data-driven repeat whose collection is
     /// missing or empty degrades to a single `None` copy (the `${value}`
     /// placeholders become tabstops), so the user still gets a scaffold.
-    fn resolve_items(&self, repeat: &Repeat, subject: Option<&str>) -> Vec<Option<Item>> {
-        let items_of = |name: &str| match self.collections.get(name) {
+    ///
+    /// A data-driven repeat is narrowed by its `?predicate` filter — or, when
+    /// none was written, by the snippet's `default_filter`. Filtering a
+    /// present collection down to nothing yields **zero** copies: "no public
+    /// function here" is real information, unlike a missing collection.
+    fn resolve_items(
+        &self,
+        repeat: &Repeat,
+        subject: Option<&str>,
+        default_filter: &[Predicate],
+    ) -> Vec<Option<Item>> {
+        let items_of = |name: &str, filter: &Filter| match self.collections.get(name) {
             Some(collection) if !collection.items.is_empty() => {
-                collection.items.iter().cloned().map(Some).collect()
+                let predicates = filter.effective(default_filter);
+                collection
+                    .items
+                    .iter()
+                    .filter(|item| predicates.iter().all(|p| p.matches(item)))
+                    .cloned()
+                    .map(Some)
+                    .collect()
             }
             _ => vec![None],
         };
         match repeat {
             Repeat::Count(n) => (0..*n).map(|_| None).collect(),
-            Repeat::Source(name) => items_of(name),
-            Repeat::Subject => subject.map_or_else(|| vec![None], items_of),
+            Repeat::Source { name, filter } => items_of(name, filter),
+            Repeat::Subject { filter } => {
+                subject.map_or_else(|| vec![None], |name| items_of(name, filter))
+            }
             // An inline literal carries its own items — parsed the same way as
             // a `--repeat` spec — so it needs no collection in context.
             Repeat::Inline(spec) => {
@@ -1608,9 +1627,18 @@ mod tests {
             scope: None,
             variants: Vec::new(),
             requires: Vec::new(),
+            filter: Vec::new(),
             composite: None,
             multifile: None,
         }
+    }
+
+    /// Attach a default repeat filter to a fixture snippet.
+    fn with_filter(mut snippet: CompiledSnippet, spec: &str) -> CompiledSnippet {
+        snippet.filter = Filter::parse(spec)
+            .expect("fixture filter should parse")
+            .predicates;
+        snippet
     }
 
     /// Attach import requirement specs to a fixture snippet.
@@ -1640,6 +1668,7 @@ mod tests {
             scope: None,
             variants: Vec::new(),
             requires: Vec::new(),
+            filter: Vec::new(),
             composite: Some(CompiledComposite {
                 expands: expands.to_owned(),
                 options: options
@@ -1672,6 +1701,11 @@ mod tests {
     /// The plain (non-composite) snippet fixtures.
     fn base_fixtures() -> Vec<CompiledSnippet> {
         vec![
+            // A test-like trigger with a default filter (public only).
+            with_filter(
+                snip("tfn", vec![], "fn test_${value}() { ${value}(); }\n"),
+                "vis=public",
+            ),
             // Source-file variables: `${src.module}` with and without a
             // default, plus a transform.
             snip(
@@ -1838,6 +1872,65 @@ mod tests {
         let abbr = parse(abbr).expect("abbreviation should parse");
         render(&abbr, &fixture_set(), &ctx(), TabstopMode::Keep)
             .expect_err("abbreviation should fail to render")
+    }
+
+    /// A context whose `src.fns` carries public/private and async members.
+    fn fns_ctx() -> ExpansionContext {
+        let mut ctx = ctx();
+        let mut items = Vec::new();
+        for (name, vis, is_async) in [
+            ("area", "public", false),
+            ("helper", "private", false),
+            ("fetch", "public", true),
+        ] {
+            let mut item = Item::new(name);
+            item.members.insert("vis".to_owned(), vis.to_owned());
+            if is_async {
+                item.members.insert("async".to_owned(), "async ".to_owned());
+            }
+            items.push(item);
+        }
+        ctx.collections
+            .insert("src.fns".to_owned(), Collection { items });
+        ctx
+    }
+
+    /// The snippet's default filter applies when none is written; a written
+    /// filter replaces it; `?all` clears it.
+    #[test]
+    fn repeat_filters_narrow_and_defaults_apply() {
+        let ctx = fns_ctx();
+        let names = |abbr: &str| -> Vec<String> {
+            expand(abbr, &ctx, TabstopMode::Strip)
+                .body
+                .lines()
+                .map(|l| l.split('(').next().unwrap_or("").to_owned())
+                .collect()
+        };
+        // Default `vis=public`.
+        assert_eq!(names("tfn*@src.fns"), ["fn test_area", "fn test_fetch"]);
+        // Written filter replaces the default (private included).
+        assert_eq!(
+            names("tfn*@src.fns?!async"),
+            ["fn test_area", "fn test_helper"]
+        );
+        // `?all` keeps everything; chained predicates AND together.
+        assert_eq!(
+            names("tfn*@src.fns?all"),
+            ["fn test_area", "fn test_helper", "fn test_fetch"]
+        );
+        assert_eq!(names("tfn*@src.fns?all?async"), ["fn test_fetch"]);
+        assert_eq!(names("tfn*@src.fns?value~he*"), ["fn test_helper"]);
+    }
+
+    /// Filtering a present collection to nothing renders zero copies; a
+    /// missing collection still degrades to the one-tabstop scaffold.
+    #[test]
+    fn repeat_filter_to_nothing_renders_nothing() {
+        let out = expand("tfn*@src.fns?vis=protected", &fns_ctx(), TabstopMode::Strip);
+        assert_eq!(out.body, "");
+        let out = expand("tfn*@src.nope?vis=protected", &fns_ctx(), TabstopMode::Keep);
+        assert_eq!(out.body, "fn test_$1() { $2(); }$0");
     }
 
     /// `${src.key}` renders the variable when a source is known, re-cased by

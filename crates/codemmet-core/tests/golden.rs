@@ -279,6 +279,7 @@ fn ts_variant_fires_on_raw_node_kind() {
             requires: None,
         }],
         requires: Vec::new(),
+        filter: Vec::new(),
         composite: None,
         multifile: None,
     }]);
