@@ -415,6 +415,150 @@ you. Authoring your own (path templates, `self`/sibling targets, structural
 `inject` into an existing class) is covered in
 [custom snippets → multi-file snippets](snippets.md#multi-file-snippets).
 
+## 11. Generating tests from a file
+
+Writing tests is repetitive in exactly the way codemmet already solves for
+enums: one block per thing, named after the thing. Source collections make a
+file's **functions, types, and methods** available as data, so one repeat
+writes one test per function.
+
+Start by asking what a file yields. Any file works; here is one from this
+repository:
+
+```sh
+codemmet vars crates/codemmet-core/src/filefmt.rs
+```
+
+```text
+Line:
+  Directive { .. }  name="Directive"
+  Comment
+  Blank
+  Abbrev { .. }     name="Abbrev"
+
+LineError:
+  UnknownDirective(..)  name="UnknownDirective"
+
+src.fns:
+  classify                                       args="raw" params="raw: &str" ret="Result<Line<'_>, LineError>" vis="public"
+  lines                                          args="text" params="text: &str" ret="impl Iterator<Item = (usize, Result<Line<'_>, LineError>)>" vis="public"
+  classifies_blank_comment_directive_and_abbrev  module="tests" test="test" vis="private"
+  abbrev_captures_leading_whitespace_as_indent   module="tests" test="test" vis="private"
+  directives_and_comments_may_be_indented        module="tests" test="test" vis="private"
+  unknown_directive_is_a_hard_error              module="tests" test="test" vis="private"
+  crlf_and_trailing_whitespace_are_ignored       module="tests" test="test" vis="private"
+  directive_value_may_be_empty_or_tab_separated  module="tests" test="test" vis="private"
+  lines_yields_one_based_numbers                 module="tests" test="test" vis="private"
+
+src.types:
+  Line       kind="enum" vis="public"
+  LineError  kind="enum" vis="public"
+```
+
+The enum collections you already know (`Line`, `LineError` — what
+`match:line>arm*` would fill) come first; then the file's API surface. Every
+function is an item of `src.fns` with members a template can read: `args` is
+what you pass in a call, `vis` is the normalized visibility, `test` and
+`module` mark the functions inside `mod tests`. The collections are complete
+— private and test functions included — and a **filter** narrows them.
+
+Now point an expansion at that file with `--source` and repeat the builtin
+`tfn` trigger over its functions:
+
+```sh
+codemmet expand --lang rust --source crates/codemmet-core/src/filefmt.rs "tfn*@src.fns"
+```
+
+```rust
+#[test]
+fn classify_works() {
+    let result = classify(raw);
+    assert_eq!(result, expected);
+}
+#[test]
+fn lines_works() {
+    let result = lines(text);
+    assert_eq!(result, expected);
+}
+```
+
+Two tests, because `tfn` carries a **default filter** (`vis=public?!test?!async`)
+and the file has two public functions. The call's arguments came from
+`${value.args}`; `expected` is a tabstop in keep mode. A filter you write
+replaces the default: `tfn*@src.fns?all` tests everything, `?!async` keeps
+the private helpers too, `?value~parse_*` keeps the parsers.
+
+Methods work the same way, per type. `src.Collection.methods` is every method
+of `Collection` in `context.rs`, and `tmeth` builds a value and calls each one
+on it:
+
+```sh
+codemmet expand --lang rust --source crates/codemmet-core/src/context.rs "tmeth*@src.Collection.methods"
+```
+
+```rust
+#[test]
+fn collection_attach_member_works() {
+    let subject = Collection::new();
+    let result = subject.attach_member(key, slots);
+    assert_eq!(result, expected);
+}
+```
+
+Only one test, because `tmeth` skips constructors and associated functions
+(no `self`) — they do not fit a body that calls through `subject`. Lift the
+filter with `?all` and you get four:
+
+```sh
+codemmet expand --lang rust --source crates/codemmet-core/src/context.rs "tmeth*@src.Collection.methods?all"
+```
+
+```rust
+#[test]
+fn collection_parse_spec_works() {
+    let subject = Collection::new();
+    let result = subject.parse_spec(spec);
+    assert_eq!(result, expected);
+}
+#[test]
+fn collection_parse_member_spec_works() {
+    let subject = Collection::new();
+    let result = subject.parse_member_spec(spec);
+    assert_eq!(result, expected);
+}
+#[test]
+fn collection_attach_member_works() {
+    let subject = Collection::new();
+    let result = subject.attach_member(key, slots);
+    assert_eq!(result, expected);
+}
+#[test]
+fn collection_parse_values_works() {
+    let subject = Collection::new();
+    let result = subject.parse_values(values);
+    assert_eq!(result, expected);
+}
+```
+
+(The three `parse_*` tests call associated functions as if they were methods —
+that is what `?all` asked for. `?static` targets just those, and a body of
+your own can call `${value.owner}::${value}(${value.args})` instead.)
+
+The same works in **Neovim**, where the source is set once per buffer:
+
+```vim
+:edit tests/geometry.rs
+:CodemmetSource                " prompts, prefilled with src/geometry.rs if it exists
+```
+
+Then type `tfn*@src.fns` and press `<A-e>`. The preview and the completion
+menu see the source too, and `:CodemmetContext` shows which file is active
+and what it yields. Every language has `tfn` and `tmeth` (pytest, C `assert`,
+GoogleTest, Jest, Go `testing`); see [editor setup](editors.md#generating-tests-from-a-source-file)
+for the editor side and [source
+collections](context-codegen.md#source-collections-functions-types-and-methods)
+for the member vocabulary and `${src.module}`.
+
 ## Where to go next
 
 - [abbreviation syntax](syntax.md) — the complete grammar and resolution rules

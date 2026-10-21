@@ -42,6 +42,21 @@ or the pieces individually with `just fmt`, `just lint`, `just test`. Specifical
   compiling (the tree-sitter-free path).
 - **cargo-deny** — advisories, licenses, and sources.
 
+The Neovim plugin has **headless end-to-end tests** under `tests/nvim/` that
+drive the real plugin against a freshly built server (they are not part of
+`cargo test`; run them when you touch `lua/`, `plugin/`, or the LSP):
+
+```sh
+cargo build -p codemmet
+nvim --headless --clean -l tests/nvim/smoke.lua     # expand, wrap, capture, scaffold, preview, …
+nvim --headless --clean -l tests/nvim/source.lua    # :CodemmetSource → tfn*@src.fns in a test buffer
+```
+
+Each script prints one `… scenario passed` line per scenario and exits
+non-zero on the first failure, dumping the buffer. The others (`health.lua`,
+`browse.lua`, `render_preview.lua`, `train.lua`, …) cover one feature each
+and run the same way. They need Neovim ≥ 0.10 on `PATH`.
+
 ## Where things live
 
 - `crates/codemmet-core` — abbreviation parser, snippet IR, renderer, TOML

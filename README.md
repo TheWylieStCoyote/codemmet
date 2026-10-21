@@ -105,7 +105,9 @@ Abbreviations appear as snippet completions in any completion setup
 (nvim-cmp, blink.cmp, built-in). `<A-e>` expands the abbreviation before
 the cursor explicitly; select lines and `<leader>cw` wraps them in a
 construct (`fori10`, `if`, `try`, …). `:CodemmetExpand` and
-`:CodemmetWrap` are the command equivalents. Requires Neovim ≥ 0.10.
+`:CodemmetWrap` are the command equivalents. In a test file,
+`:CodemmetSource` names the file under test and `tfn*@src.fns` then expands
+to one test per public function of it. Requires Neovim ≥ 0.10.
 
 Any other LSP-capable editor works too: point it at `codemmet lsp` and
 wire `codemmet.expand` / `codemmet.wrap` to keybindings.

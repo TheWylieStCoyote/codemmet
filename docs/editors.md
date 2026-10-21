@@ -272,20 +272,43 @@ surfaces.
 ### Generating tests from a source file
 
 Tests usually live apart from the code under test, so the buffer's own
-definitions are not the ones you want to repeat over. `:CodemmetSource
-src/geometry.rs` tells the server which file backs this buffer's `src.*`
-collections (see [source
-collections](context-codegen.md#source-collections-functions-types-and-methods));
-from then on every expansion, preview, completion, and `:CodemmetContext` in
-the buffer sees that file's functions, types, and methods, and
-`${src.module}` resolves to its import path. Then type `tfn*@src.fns` and
-expand: one test per public function. The choice is kept per buffer
-(`vim.b.codemmet_source`) and re-sent if the server restarts.
+definitions are not the ones you want to repeat over. `:CodemmetSource` tells
+the server which file backs this buffer's `src.*` collections (see [source
+collections](context-codegen.md#source-collections-functions-types-and-methods)).
+The flow, for a Rust crate with `src/geometry.rs` under test:
+
+1. Open the test file: `:edit tests/geometry.rs`.
+2. `:CodemmetSource` — with no argument it prompts, prefilled with a
+   convention-based guess (`src/geometry.rs` here, because it exists on disk;
+   likewise `test_x.py` → `x.py`, `x_test.go` → `x.go`, `x.test.ts` → `x.ts`,
+   `x_test.cpp` → `x.cpp`/`x.hpp`). Pass a path to skip the prompt. The
+   notification confirms the file and how many collections it yielded.
+3. Type `tfn*@src.fns` and press `<A-e>` (or `:CodemmetExpand`): one `#[test]`
+   per public function of `geometry.rs`, with the call arguments filled in,
+   and the cursor on the first `expected` tabstop. `tmeth*@src.Point.methods`
+   does the same for `Point`'s instance methods; append `?all` or your own
+   `?…` chain to change the selection.
+4. `:CodemmetContext` shows which source is active, its `${src.*}` variables
+   (`module` is `crate::geometry`), and every collection it yields.
+5. `:CodemmetSource none` forgets it.
+
+The source is server state for the buffer, so the live preview and the
+completion menu see it too — a half-typed `tfn*@src.` previews against the
+right file. The choice is kept in `vim.b.codemmet_source` and re-sent when
+the server (re)attaches.
 
 The server side is the `codemmet.setSource` command: `{ uri, source }` with a
 path (absolute, or relative to the document's directory) stores it and returns
 `{ source, collections }` — the resolved path and the collection names it
-yields; `{ uri, source: null }` clears it.
+yields; `{ uri, source: null }` clears it. Any LSP client can drive it the
+same way.
+
+Two things to check if nothing happens: the plugin launches `codemmet lsp`
+from your `PATH`, so the binary there must be one that knows
+`codemmet.setSource` (run `codemmet vars <file>`; an older binary rejects
+it), and the source must be a language with a compiled-in grammar (the
+default build has all seven). This flow is covered end to end by the headless
+test `tests/nvim/source.lua` (see [Contributing](../CONTRIBUTING.md)).
 ### Authoring `.codemmet` files (file mode)
 
 The plugin makes `.codemmet` source files — the multi-line file-mode format
