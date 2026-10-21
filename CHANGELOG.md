@@ -64,6 +64,12 @@ follows [Semantic Versioning](https://semver.org/).
   `#[cfg(test)] mod tests` to the source itself. Multi-file `path` templates
   and `on_create` headers accept `${src.*}` variables, and a piece may
   `target = "source"`. `:CodemmetScaffold` passes the buffer's source.
+- **"Add missing tests" code action.** In a document with a source set, the
+  LSP's `textDocument/codeAction` offers "Add N missing function tests from
+  `<file>`" and "… method tests …": the `tfn`/`tmeth` tests for every item
+  passing the trigger's default filter whose name the buffer does not mention,
+  appended at the end of the file as one plain-text edit. Re-run it after
+  adding a function to the source to get just that test.
 - **Docs and tests.** A tutorial chapter ("Generating tests from a file")
   with the exact outputs, the Neovim flow in the editor guide, and a headless
   end-to-end test (`tests/nvim/source.lua`) covering `:CodemmetSource`,

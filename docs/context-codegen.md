@@ -503,6 +503,27 @@ skipped, so it also completes a partial `match`. The edit is plain text (no
 tabstops), so it works in any LSP client — no codemmet plugin needed. This is
 Rust-only for now.
 
+### Add missing tests
+
+The same discoverable shape exists for [source
+collections](#source-collections-functions-types-and-methods). In a test file
+that has a source set (`:CodemmetSource`, or `codemmet.setSource` from any
+client), the code-action menu offers, anywhere in the buffer:
+
+- **"Add N missing function tests from `geometry.rs`"** — the `tfn` test for
+  every function of the source that passes `tfn`'s default filter (public,
+  non-test, non-async) and whose name the buffer does not mention yet;
+- **"Add N missing method tests from `geometry.rs`"** — likewise with `tmeth`
+  over the source's methods.
+
+Each applies as one plain-text edit appended at the end of the file, so it
+also works as "catch up": add a function to the source, re-run the action, get
+just its test. "Already tested" is a whole-identifier mention of the function
+name anywhere in the buffer — a deliberately simple heuristic, which is why
+the actions report a count you can sanity-check before applying. Works in
+every language the `tfn`/`tmeth` triggers ship for; the user packs that
+override those triggers (and their `filter`) are honored.
+
 ## See also
 
 - [Abbreviation syntax](syntax.md) — the `*@name` grammar and the `${value}`

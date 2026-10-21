@@ -389,6 +389,12 @@ In Neovim:
 or bind it, e.g. `vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action)`.
 The edit is plain text, so it applies in any LSP client.
 
+In a buffer with a source set (`:CodemmetSource`), the same menu also offers
+**"Add N missing function tests from `<file>`"** and **"… method tests …"**:
+the `tfn`/`tmeth` tests for every public function or method of the source
+the buffer does not mention yet, appended at the end of the file. See
+[add missing tests](context-codegen.md#add-missing-tests).
+
 ### Automatic imports
 
 Snippets that declare [import requirements](snippets.md#import-requirements-requires) (`requires = ["std::collections::HashMap"]` on the builtin Rust `hmap`, `<stdio.h>` on the C `pr`, `fmt` on the Go `pr`, …) bring their imports with them:

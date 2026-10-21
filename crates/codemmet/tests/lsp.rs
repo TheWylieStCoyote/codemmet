@@ -1394,3 +1394,60 @@ fn execute_command_set_source_feeds_collections_and_vars() {
     assert_eq!(result["vars"], json!({}));
     client.shutdown();
 }
+
+/// With a source set, the code-action menu offers to append the tests a test
+/// file is still missing: one action per test trigger, counting only items
+/// the trigger's default filter keeps and the buffer never mentions.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn code_action_adds_missing_tests_from_the_source() {
+    let dir = scratch_dir("lsp-missing-tests");
+    let src = dir.join("geometry.rs");
+    std::fs::write(
+        &src,
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\npub fn perimeter(w: f64, h: f64) -> f64 { 2.0 * (w + h) }\nfn helper() {}\npub struct Point { x: f64 }\nimpl Point {\n    pub fn len(&self) -> f64 { self.x }\n}\n",
+    )
+    .expect("write");
+    let (mut client, _) = LspClient::start("missing-tests", &["utf-8"], &json!({}));
+    // `area` already has a test; `perimeter` and `Point::len` do not.
+    client.open(
+        URI,
+        "rust",
+        "use geometry::*;\n\n#[test]\nfn area_works() {\n    assert_eq!(area(2.0, 3.0), 6.0);\n}\n",
+    );
+    // No source yet: no test actions (and nothing else at this cursor).
+    assert_eq!(client.code_action(URI, 0, 0), json!([]));
+
+    client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.setSource",
+            "arguments": [{ "uri": URI, "source": src.to_str().expect("UTF-8 path") }],
+        }),
+    );
+    let result = client.code_action(URI, 0, 0);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 2, "actions: {result}");
+    assert_eq!(
+        actions[0]["title"],
+        json!("Add 1 missing function test from geometry.rs")
+    );
+    let edit = &actions[0]["edit"]["changes"][URI][0];
+    // Appended at the end of the document.
+    assert_eq!(edit["range"]["start"]["line"], json!(6));
+    let text = edit["newText"].as_str().expect("newText");
+    assert!(text.contains("fn perimeter_works()"), "newText: {text}");
+    assert!(text.contains("perimeter(w, h)"), "newText: {text}");
+    assert!(!text.contains("area_works"), "newText: {text}");
+    assert!(!text.contains("helper"), "newText: {text}");
+
+    assert_eq!(
+        actions[1]["title"],
+        json!("Add 1 missing method test from geometry.rs")
+    );
+    let text = actions[1]["edit"]["changes"][URI][0]["newText"]
+        .as_str()
+        .expect("newText");
+    assert!(text.contains("fn point_len_works()"), "newText: {text}");
+    client.shutdown();
+}

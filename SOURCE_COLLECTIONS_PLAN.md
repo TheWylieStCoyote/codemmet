@@ -276,9 +276,12 @@ depend on earlier ones.
 4. **Test packs.** *(done)* `tfn`/`tmeth` per language with default filters; examples
    in `docs/examples/*`.
 5. **Per-item variants** *(done)* — `[[variants]] when = "static"`: a body chosen by the copy's item, combinable with `context`; `tmeth` uses it for statics and constructors in every pack.
-6. **"Add missing tests" code action** — a `fill_targets` shape that parses
-   the test file too and offers one edit per untested function. Mirrors the
-   match-arm fill. Optional.
+6. **"Add missing tests" code action** *(done)* — with a source set, the LSP
+   offers "Add N missing function/method tests from <file>": the `tfn`/`tmeth`
+   tests for items passing the trigger's default filter whose name the buffer
+   never mentions, appended as one plain-text edit. Lives in the LSP layer
+   (not `fill_targets`), since it needs the source, the test file, and the
+   engine together.
 
 ## Refinements made while building
 

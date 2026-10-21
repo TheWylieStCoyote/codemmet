@@ -21,9 +21,12 @@ use std::rc::Rc;
 use codemmet_core::Engine;
 use codemmet_core::config::loader::ConfigError;
 use codemmet_core::config::paths::PathMapping;
-use codemmet_core::context::{ContextProvider, DocSnapshot, SourceContext};
+use codemmet_core::context::{
+    Collection, ContextProvider, DocSnapshot, ExpansionContext, Item, SourceContext,
+};
 use codemmet_core::lang::profile;
 use codemmet_core::lang::registry::{Registry, resolve_override_dirs};
+use codemmet_core::snippet::render::TabstopMode;
 #[cfg(feature = "tree-sitter")]
 use codemmet_tsctx::TreeSitterProvider;
 use lsp_server::{Connection, ErrorCode, Message, Request, Response};
@@ -528,7 +531,7 @@ impl Server {
         let index = LineIndex::new(&doc.text);
         // Offer actions for the cursor (the selection start).
         let offset = index.offset(&doc.text, params.range.start, self.encoding);
-        let actions: Vec<CodeActionOrCommand> = self
+        let mut actions: Vec<CodeActionOrCommand> = self
             .provider
             .fill_targets(&doc, offset)
             .into_iter()
@@ -537,28 +540,91 @@ impl Server {
                     start: index.position(&doc.text, target.range.start, self.encoding),
                     end: index.position(&doc.text, target.range.end, self.encoding),
                 };
-                let edit = WorkspaceEdit {
-                    changes: Some(HashMap::from([(
-                        uri.clone(),
-                        vec![TextEdit {
-                            range,
-                            new_text: target.new_text,
-                        }],
-                    )])),
-                    ..WorkspaceEdit::default()
-                };
-                CodeActionOrCommand::CodeAction(CodeAction {
-                    title: target.title,
-                    kind: Some(CodeActionKind::REFACTOR_REWRITE),
-                    edit: Some(edit),
-                    ..CodeAction::default()
-                })
+                text_edit_action(&uri, target.title, range, target.new_text)
             })
             .collect();
+        actions.extend(self.missing_test_actions(&uri, &doc, &index));
         match serde_json::to_value(actions) {
             Ok(value) => Response::new_ok(request.id, value),
             Err(err) => internal_error(request.id, &err),
         }
+    }
+
+    /// "Add missing tests" actions for a document with an explicit source
+    /// (`codemmet.setSource`): one per builtin test trigger — `tfn` over the
+    /// source's `src.fns`, `tmeth` over its `src.methods` — that still has
+    /// items which pass the trigger's own default filter and whose name the
+    /// document never mentions. The edit appends the rendered tests at the
+    /// end of the document as plain text, so any LSP client can apply it.
+    fn missing_test_actions(
+        &mut self,
+        uri: &Uri,
+        doc: &DocSnapshot,
+        index: &LineIndex,
+    ) -> Vec<CodeActionOrCommand> {
+        let Some(source) = self.source_context(uri) else {
+            return Vec::new();
+        };
+        let engine = self.engine_for(uri);
+        let Some(lang) = engine.registry().language(&doc.language) else {
+            return Vec::new();
+        };
+        let file = Path::new(&source.path)
+            .file_name()
+            .map_or_else(|| source.path.clone(), |f| f.to_string_lossy().into_owned());
+        let mut actions = Vec::new();
+        for (trigger, key, noun) in [
+            ("tfn", "src.fns", "function"),
+            ("tmeth", "src.methods", "method"),
+        ] {
+            let (Some(snippet), Some(collection)) =
+                (lang.set.get(trigger), source.collections.get(key))
+            else {
+                continue;
+            };
+            let missing: Vec<Item> = collection
+                .items
+                .iter()
+                .filter(|item| snippet.filter.iter().all(|p| p.matches(item)))
+                .filter(|item| !mentions(&doc.text, &item.value))
+                .cloned()
+                .collect();
+            if missing.is_empty() {
+                continue;
+            }
+            let count = missing.len();
+            let mut ctx =
+                ExpansionContext::plain(String::new(), lang.profile.default_indent.clone());
+            ctx.collections
+                .insert("missing".to_owned(), Collection { items: missing });
+            ctx.vars.clone_from(&source.vars);
+            // `?all`: the default filter was applied above; the collection is
+            // exactly the set to render.
+            let Ok(expansion) = engine.expand(
+                &format!("{trigger}*@missing?all"),
+                &doc.language,
+                &ctx,
+                TabstopMode::Strip,
+            ) else {
+                continue;
+            };
+            let end = index.position(&doc.text, doc.text.len(), self.encoding);
+            let lead = if doc.text.is_empty() || doc.text.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            };
+            let new_text = format!("{lead}{}\n", expansion.body.trim_end_matches('\n'));
+            let plural = if count == 1 { "" } else { "s" };
+            let title = format!("Add {count} missing {noun} test{plural} from {file}");
+            actions.push(text_edit_action(
+                uri,
+                title,
+                Range { start: end, end },
+                new_text,
+            ));
+        }
+        actions
     }
 
     /// `workspace/executeCommand`: `codemmet.expand` / `codemmet.wrap`.
@@ -685,6 +751,45 @@ impl Server {
             text: doc.text.clone(),
         })
     }
+}
+
+/// A code action carrying one plain-text edit to `uri`.
+fn text_edit_action(
+    uri: &Uri,
+    title: String,
+    range: Range,
+    new_text: String,
+) -> CodeActionOrCommand {
+    let edit = WorkspaceEdit {
+        changes: Some(HashMap::from([(
+            uri.clone(),
+            vec![TextEdit { range, new_text }],
+        )])),
+        ..WorkspaceEdit::default()
+    };
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(CodeActionKind::REFACTOR_REWRITE),
+        edit: Some(edit),
+        ..CodeAction::default()
+    })
+}
+
+/// Whether `text` mentions `name` as a whole identifier (not as part of a
+/// longer one) — the heuristic for "this function already has a test".
+fn mentions(text: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices(name).any(|(at, _)| {
+        let before = text[..at].chars().next_back().is_none_or(|c| !is_ident(c));
+        let after = text[at + name.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !is_ident(c));
+        before && after
+    })
 }
 
 /// Deserialize the single object argument LSP commands carry.
