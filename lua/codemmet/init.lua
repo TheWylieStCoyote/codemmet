@@ -121,6 +121,15 @@ function M.snippets()
   require("codemmet.browse").pick()
 end
 
+---Set the source file for this buffer: the file whose functions, types, and
+---methods become `src.*` collections (`tfn*@src.fns`) and whose path sets the
+---`${src.*}` variables. Prompts (prefilled with a convention-based guess)
+---unless `opts.path` is given; `opts.clear` forgets the source.
+---@param opts? codemmet.SourceOpts
+function M.source(opts)
+  require("codemmet.source").set(opts)
+end
+
 ---Show the codemmet context at the cursor: the scope stack and the in-scope
 ---collections data-driven repeats can expand over.
 function M.context()
@@ -287,6 +296,9 @@ function M.setup(opts)
         require("codemmet.preview").attach(ev.buf)
       end
       require("codemmet.completion").attach(client, ev.buf, config.completion)
+      -- A source chosen before a server restart lives in `vim.b`; tell the
+      -- fresh server about it.
+      require("codemmet.source").resend(ev.buf, client)
     end,
   })
 end

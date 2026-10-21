@@ -339,7 +339,7 @@ impl Parser<'_> {
                 {
                     return Err(err("expected a name after '*@'", star));
                 }
-                Ok(Repeat::Source(self.word()))
+                Ok(Repeat::Source(self.dotted_word()))
             }
             Some('[') => self.inline_spec(star),
             Some(c) if c.is_ascii_digit() => Ok(Repeat::Count(self.repeat_count(star)?)),
@@ -383,6 +383,23 @@ impl Parser<'_> {
             self.bump();
         }
         self.input[start..self.pos].to_string()
+    }
+
+    /// `WORD ( '.' WORD )*` — a collection name, which may be namespaced
+    /// (`src.fns`, `src.Point.methods`). A trailing `.` is left unconsumed.
+    fn dotted_word(&mut self) -> String {
+        let mut name = self.word();
+        while self.peek() == Some('.')
+            && self.input[self.pos + 1..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            self.bump();
+            name.push('.');
+            name.push_str(&self.word());
+        }
+        name
     }
 
     /// The NUMBER after `*`; `star` is the operator's span for errors.
@@ -769,6 +786,14 @@ mod tests {
     fn star_at_names_an_explicit_source() {
         let nodes = parse("a*@Msg").expect("`*@name` is valid").0;
         assert_eq!(nodes[0].repeat, Repeat::Source("Msg".to_string()));
+        let nodes = parse("tfn*@src.Point.methods>pr")
+            .expect("a dotted `*@name` is valid")
+            .0;
+        assert_eq!(
+            nodes[0].repeat,
+            Repeat::Source("src.Point.methods".to_string())
+        );
+        assert_eq!(nodes[0].children.len(), 1);
     }
 
     #[test]

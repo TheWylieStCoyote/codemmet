@@ -13,7 +13,8 @@ use codemmet_core::lang::imports;
 use codemmet_core::scaffold::{FileOutput, ScaffoldOptions, scaffold};
 
 use super::{
-    EXIT_CONFIG, EXIT_RENDER, Sources, Tabstops, config_failure, load_registry, resolve_indent_unit,
+    EXIT_CONFIG, EXIT_RENDER, Sources, Tabstops, config_failure, load_registry, load_source,
+    resolve_indent_unit,
 };
 
 /// Arguments for `codemmet scaffold`.
@@ -48,6 +49,11 @@ pub struct ScaffoldArgs {
     /// primary}` objects.
     #[arg(long)]
     json: bool,
+
+    /// A source file whose definitions become collections (`src.fns`, …) and
+    /// whose path sets the `${src.*}` variables for the pieces.
+    #[arg(long, value_name = "FILE")]
+    source: Option<PathBuf>,
 
     /// The invocation (a single trigger with args, e.g. `djfeature:blog`);
     /// omitted or `-` reads it from stdin.
@@ -109,7 +115,13 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
 
     let engine = Engine::with_registry(registry);
     let indent = indent_unit.as_str();
-    let ctx = ExpansionContext::plain(String::new(), indent_unit);
+    let mut ctx = ExpansionContext::plain(String::new(), indent_unit);
+    if let Some(path) = &args.source {
+        match load_source(path, &args.lang) {
+            Ok(source) => source.apply(&mut ctx),
+            Err(msg) => return config_failure(&msg),
+        }
+    }
     let opts = ScaffoldOptions {
         root: &args.root,
         current_file: args.from.as_deref(),

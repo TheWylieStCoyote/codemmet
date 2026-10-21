@@ -1,4 +1,5 @@
-//! `workspace/executeCommand`: `codemmet.expand` and `codemmet.wrap`.
+//! `workspace/executeCommand`: `codemmet.expand`, `codemmet.wrap`, and the
+//! read-only / state commands (`preview`, `list`, `context`, `setSource`).
 //!
 //! Both commands *return* `{ range, snippet, isSnippet }` instead of sending
 //! `workspace/applyEdit`, because applied edits cannot carry tabstops; the
@@ -104,6 +105,7 @@ pub fn expand(server: &mut Server, args: &ExpandArgs) -> Result<serde_json::Valu
         offset,
         args.formatting_options,
     );
+    apply_source(server, &args.uri, &mut ctx);
     // LSP snippet clients (VS Code, Neovim's `vim.snippet`) re-indent snippet
     // continuation lines from the insertion position, so a server-side base
     // indent would be applied twice. Render with an empty base indent;
@@ -145,12 +147,13 @@ pub fn preview(server: &mut Server, args: &ExpandArgs) -> serde_json::Value {
         return serde_json::Value::Null;
     };
     let engine = server.engine_for(&args.uri);
-    let ctx = context_for(
+    let mut ctx = context_for(
         server.provider.as_mut(),
         &doc,
         offset,
         args.formatting_options,
     );
+    apply_source(server, &args.uri, &mut ctx);
     let Ok(expansion) = engine.expand(candidate, &doc.language, &ctx, TabstopMode::Strip) else {
         // A candidate is present but not renderable mid-typing: signal "keep".
         return serde_json::json!({});
@@ -195,6 +198,7 @@ pub fn wrap(server: &mut Server, args: &WrapArgs) -> Result<serde_json::Value, C
         snapped.start,
         args.formatting_options,
     );
+    apply_source(server, &args.uri, &mut ctx);
     // LSP snippet clients (VS Code, Neovim's `vim.snippet`) re-indent snippet
     // continuation lines from the insertion position, so a server-side base
     // indent would be applied twice. Render with an empty base indent;
@@ -242,6 +246,7 @@ pub fn list(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, Com
     let offset = index.offset(&doc.text, args.position, server.encoding);
     let engine = server.engine_for(&args.uri);
     let mut ctx = server.provider.context_at(&doc, offset);
+    apply_source(server, &args.uri, &mut ctx);
     // Bodies go to snippet clients that re-indent continuation lines from the
     // insertion position (see `expand`), so render with an empty base indent.
     ctx.base_indent = String::new();
@@ -288,7 +293,11 @@ pub fn context(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, 
     let doc = server.snapshot(&args.uri)?;
     let index = LineIndex::new(&doc.text);
     let offset = index.offset(&doc.text, args.position, server.encoding);
-    let ctx = server.provider.context_at(&doc, offset);
+    let mut ctx = server.provider.context_at(&doc, offset);
+    let source = server.source_context(&args.uri);
+    if let Some(source) = &source {
+        source.apply(&mut ctx);
+    }
 
     let scopes: Vec<&str> = ctx.scopes.iter().map(|scope| scope_name(*scope)).collect();
     let collections: Vec<serde_json::Value> = ctx
@@ -308,7 +317,63 @@ pub fn context(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, 
         "scopes": scopes,
         "inStringOrComment": ctx.in_string_or_comment,
         "collections": collections,
+        "source": source.as_ref().map(|s| s.path.as_str()),
+        "vars": ctx.vars,
     }))
+}
+
+/// Arguments of `codemmet.setSource`.
+#[derive(Debug, Deserialize)]
+pub struct SetSourceArgs {
+    /// The document the source applies to.
+    pub uri: Uri,
+    /// The source file's path (absolute, or relative to the document's
+    /// directory); `null` clears the source.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Run `codemmet.setSource`: remember (or forget) the file whose
+/// definitions feed `src.*` collections and `${src.*}` variables for every
+/// later command and completion in `uri`. Returns `{ source, collections }`
+/// — the resolved path and the collection names it yields — so the editor
+/// can confirm what was picked up.
+pub fn set_source(
+    server: &mut Server,
+    args: &SetSourceArgs,
+) -> Result<serde_json::Value, CommandError> {
+    let Some(raw) = args.source.as_deref().filter(|s| !s.is_empty()) else {
+        server.sources.remove(&args.uri);
+        return Ok(serde_json::json!({ "source": null, "collections": [] }));
+    };
+    let mut path = std::path::PathBuf::from(raw);
+    if path.is_relative()
+        && let Some(doc_path) = super::file_uri_to_path(args.uri.as_str())
+        && let Some(dir) = doc_path.parent()
+    {
+        path = dir.join(path);
+    }
+    if !path.is_file() {
+        return Err(CommandError(format!(
+            "source `{}` is not a readable file",
+            path.display()
+        )));
+    }
+    server.sources.insert(args.uri.clone(), path);
+    let source = server.source_context(&args.uri).ok_or_else(|| {
+        CommandError(format!(
+            "cannot read collections from `{raw}` (unsupported language?)"
+        ))
+    })?;
+    let names: Vec<&String> = source.collections.keys().collect();
+    Ok(serde_json::json!({ "source": source.path, "collections": names }))
+}
+
+/// Merge the document's explicit source (if any) into `ctx`.
+fn apply_source(server: &mut Server, uri: &Uri, ctx: &mut ExpansionContext) {
+    if let Some(source) = server.source_context(uri) {
+        source.apply(ctx);
+    }
 }
 
 /// One display line summarizing a strip-mode expansion: its first line, with

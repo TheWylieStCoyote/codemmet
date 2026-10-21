@@ -21,7 +21,7 @@ use std::process::ExitCode;
 
 use clap::Args;
 use codemmet_core::Engine;
-use codemmet_core::context::{Collection, ContextProvider, DocSnapshot, IndentUnit};
+use codemmet_core::context::{Collection, ContextProvider, DocSnapshot, IndentUnit, SourceContext};
 use codemmet_core::engine::ExpandError;
 use codemmet_core::filefmt::{self, Line};
 use codemmet_core::lang::registry::Registry;
@@ -30,7 +30,7 @@ use codemmet_core::snippet::render::TabstopMode;
 
 use super::{
     EXIT_CONFIG, EXIT_PARSE, EXIT_RENDER, Sources, Tabstops, config_failure, load_registry,
-    resolve_indent_unit,
+    load_source, resolve_indent_unit,
 };
 
 /// Arguments for `codemmet render`.
@@ -58,6 +58,12 @@ pub struct RenderArgs {
     #[arg(long, value_name = "NAME=v1,v2,…")]
     repeat: Vec<String>,
 
+    /// A source file whose definitions become collections (`src.fns`, …)
+    /// and whose path sets the `${src.*}` variables. A `#source` directive
+    /// overrides it from its line down.
+    #[arg(long, value_name = "FILE")]
+    source: Option<PathBuf>,
+
     /// The `.codemmet` source file; omitted or `-` reads stdin.
     #[arg(value_name = "FILE")]
     file: Option<PathBuf>,
@@ -72,6 +78,7 @@ impl RenderArgs {
             indent: None,
             tabstops: None,
             repeat: Vec::new(),
+            source: None,
             file: Some(file),
         }
     }
@@ -188,6 +195,12 @@ struct FileState<'a> {
     lang_directive: Option<String>,
     /// `#repeat` collections, effective from their line down.
     directive_collections: BTreeMap<String, Collection>,
+    /// The explicit source (`#source` directive, else `--source`), loaded
+    /// lazily at the first abbreviation (the language may still be unknown
+    /// when the flag is parsed).
+    source: Option<SourceContext>,
+    /// The pending `#source`/`--source` path until it is loaded.
+    source_path: Option<PathBuf>,
     /// Set at the first abbreviation line.
     lang_state: Option<LangState>,
     /// Everything rendered so far, stripped — the progressive-context
@@ -214,6 +227,8 @@ impl<'a> FileState<'a> {
             provider: default_provider(),
             lang_directive: None,
             directive_collections: BTreeMap::new(),
+            source: None,
+            source_path: args.source.clone(),
             lang_state: None,
             buffer: String::new(),
             keep_doc: (args.tabstops == Some(Tabstops::Keep)).then(SnippetDocBuilder::new),
@@ -247,6 +262,7 @@ impl<'a> FileState<'a> {
         match name {
             "lang" => self.lang_directive(value),
             "repeat" => self.repeat_directive(value),
+            "source" => self.source_directive(value),
             other => Err((format!("unsupported directive `#{other}`"), EXIT_PARSE)),
         }
     }
@@ -296,9 +312,41 @@ impl<'a> FileState<'a> {
         Ok(())
     }
 
+    /// `#source PATH`: the file whose definitions and path feed `src.*`
+    /// collections and `${src.*}` variables from here down.
+    fn source_directive(&mut self, value: &str) -> Result<(), StepError> {
+        if value.is_empty() {
+            return Err((
+                "`#source` needs a path, e.g. `#source src/geometry.rs`".to_string(),
+                EXIT_PARSE,
+            ));
+        }
+        self.source_path = Some(PathBuf::from(value));
+        self.source = None;
+        Ok(())
+    }
+
+    /// Load the pending source path, if any, for the language in effect.
+    fn ensure_source(&mut self) -> Result<(), StepError> {
+        if self.source.is_some() {
+            return Ok(());
+        }
+        let Some(path) = self.source_path.take() else {
+            return Ok(());
+        };
+        let lang = self
+            .lang_state
+            .as_ref()
+            .map(|state| state.lang.clone())
+            .unwrap_or_default();
+        self.source = Some(load_source(&path, &lang).map_err(|msg| (msg, EXIT_CONFIG))?);
+        Ok(())
+    }
+
     /// Expand one abbreviation at the end of the buffer and append it.
     fn abbrev(&mut self, indent: &str, abbr: &str) -> Result<(), StepError> {
         self.ensure_lang_state()?;
+        self.ensure_source()?;
         let state = self
             .lang_state
             .as_ref()
@@ -311,7 +359,10 @@ impl<'a> FileState<'a> {
         let mut ctx = self.provider.context_at(&doc, doc.text.len());
         ctx.base_indent = indent.to_string();
         ctx.indent_unit = state.indent_unit.clone();
-        // Collection precedence: buffer-extracted < --repeat < #repeat.
+        // Collection precedence: buffer-extracted < source < --repeat < #repeat.
+        if let Some(source) = &self.source {
+            source.apply(&mut ctx);
+        }
         ctx.collections.extend(self.seeds.clone());
         ctx.collections.extend(self.directive_collections.clone());
         let expansion = state

@@ -176,6 +176,10 @@ fn parse_braced(
                     break;
                 }
             }
+            // `${src.key…}`: a source-file variable.
+            if name == "src" {
+                return parse_src_variable(chars, line_no);
+            }
             // `${value…}` (current item) and `${outer…}` (enclosing item):
             // data-driven repeat items. Handled before the `}` check because of
             // the `.`/`|`/`:` suffixes.
@@ -245,6 +249,44 @@ fn parse_braced(
         Some('}') => Err(err(line_no, "empty '${}'")),
         Some(_) => Err(err(line_no, "invalid '${...}' expression")),
         None => Err(err(line_no, "unclosed '${'")),
+    }
+}
+
+/// The rest of a `${src.…}` reference after `src`: `.key` (required), then
+/// the same `|transform` and `:default` suffixes as `${value…}`.
+fn parse_src_variable(chars: &mut Chars<'_>, line_no: usize) -> Result<Span, TemplateError> {
+    if chars.peek() != Some(&'.') {
+        return Err(err(
+            line_no,
+            "expected a key after ${src. (e.g. ${src.module})",
+        ));
+    }
+    chars.next();
+    let mut key = String::new();
+    while let Some(c) = chars.peek().copied() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            chars.next();
+            key.push(c);
+        } else {
+            break;
+        }
+    }
+    if key.is_empty() {
+        return Err(err(line_no, "expected a key after ${src."));
+    }
+    let transform = parse_transform(chars, line_no)?;
+    match chars.next() {
+        Some('}') => Ok(Span::Variable {
+            key,
+            transform,
+            default: None,
+        }),
+        Some(':') => Ok(Span::Variable {
+            key,
+            transform,
+            default: Some(parse_placeholder(chars, line_no)?),
+        }),
+        _ => Err(err(line_no, "expected '}' or ':' in ${src.key}")),
     }
 }
 
@@ -341,6 +383,40 @@ mod tests {
 
     fn text(s: &str) -> Span {
         Span::Text(s.to_owned())
+    }
+
+    #[test]
+    fn src_variable_forms() {
+        let t = parse("${src.module} ${src.stem|pascal} ${src.file:main.rs}\n");
+        assert_eq!(
+            t.lines[0].spans,
+            vec![
+                Span::Variable {
+                    key: "module".into(),
+                    transform: None,
+                    default: None,
+                },
+                text(" "),
+                Span::Variable {
+                    key: "stem".into(),
+                    transform: Some(CaseTransform::Pascal),
+                    default: None,
+                },
+                text(" "),
+                Span::Variable {
+                    key: "file".into(),
+                    transform: None,
+                    default: Some("main.rs".into()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn src_without_key_is_an_error() {
+        for body in ["${src}", "${src.}", "${src.module"] {
+            assert!(parse_template(body).is_err(), "{body} should not parse");
+        }
     }
 
     fn stop(index: u32) -> Span {

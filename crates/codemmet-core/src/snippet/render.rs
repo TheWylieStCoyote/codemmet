@@ -206,6 +206,7 @@ fn compose(
         composed_lines: 0,
         keep_child_slot,
         collections: &ctx.collections,
+        vars: &ctx.vars,
         composite_depth: 0,
         shared_emitted: HashSet::new(),
         outer_stack: Vec::new(),
@@ -277,6 +278,8 @@ struct Composer<'a> {
     keep_child_slot: bool,
     /// Named collections in scope, for data-driven repeats.
     collections: &'a BTreeMap<String, Collection>,
+    /// Source-file variables for `${src.key}`.
+    vars: &'a BTreeMap<String, String>,
     /// Current composite-expansion nesting depth, capped at
     /// [`MAX_COMPOSITE_DEPTH`].
     composite_depth: u32,
@@ -673,6 +676,21 @@ impl Composer<'_> {
                             },
                         }
                     }
+                    Span::Variable {
+                        key,
+                        transform,
+                        default,
+                    } => self.vars.get(key).map_or_else(
+                        // No source known: a tabstop carrying the default, or
+                        // the key as a hint of what belongs there.
+                        || CSpan::Stop {
+                            id: self.alloc(Some(default.clone().unwrap_or_else(|| key.clone()))),
+                            mirror: false,
+                        },
+                        |text| {
+                            CSpan::Text(transform.map_or_else(|| text.clone(), |t| t.apply(text)))
+                        },
+                    ),
                     Span::ChildSlot => CSpan::Slot,
                     Span::FinalCursor => CSpan::Final,
                 });
@@ -1654,6 +1672,13 @@ mod tests {
     /// The plain (non-composite) snippet fixtures.
     fn base_fixtures() -> Vec<CompiledSnippet> {
         vec![
+            // Source-file variables: `${src.module}` with and without a
+            // default, plus a transform.
+            snip(
+                "usesrc",
+                vec![],
+                "use ${src.module};\nmod ${src.stem|snake:mymod};\n${src.file|upper}$0",
+            ),
             scoped(
                 with_variant(
                     snip(
@@ -1813,6 +1838,27 @@ mod tests {
         let abbr = parse(abbr).expect("abbreviation should parse");
         render(&abbr, &fixture_set(), &ctx(), TabstopMode::Keep)
             .expect_err("abbreviation should fail to render")
+    }
+
+    /// `${src.key}` renders the variable when a source is known, re-cased by
+    /// its transform.
+    #[test]
+    fn src_variables_render_from_context() {
+        let mut ctx = ctx();
+        ctx.vars
+            .insert("module".to_owned(), "crate::geo".to_owned());
+        ctx.vars.insert("stem".to_owned(), "GeoShapes".to_owned());
+        ctx.vars.insert("file".to_owned(), "geo.rs".to_owned());
+        let out = expand("usesrc", &ctx, TabstopMode::Keep);
+        assert_eq!(out.body, "use crate::geo;\nmod geo_shapes;\nGEO.RS$0");
+    }
+
+    /// Without a source, every `${src.key}` is a tabstop carrying its default
+    /// or, failing that, the key — a visible hole, never silent empty text.
+    #[test]
+    fn src_variables_degrade_to_tabstops_without_a_source() {
+        let out = expand("usesrc", &ctx(), TabstopMode::Keep);
+        assert_eq!(out.body, "use ${1:module};\nmod ${2:mymod};\n${3:file}$0");
     }
 
     #[test]

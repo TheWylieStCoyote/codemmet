@@ -221,6 +221,10 @@ pub struct ExpansionContext {
     /// Named collections in scope, for data-driven repeats (`arm*@Msg`, or a
     /// bare `*` over a subject). Empty when there is no context data.
     pub collections: BTreeMap<String, Collection>,
+    /// Source-file variables for `${src.<key>}` references (`module`, `file`,
+    /// `stem`, `dir`, `path`), set when an explicit source file is named.
+    /// Empty otherwise: a bare buffer has no path to derive them from.
+    pub vars: BTreeMap<String, String>,
 }
 
 impl ExpansionContext {
@@ -233,7 +237,36 @@ impl ExpansionContext {
             base_indent,
             indent_unit,
             collections: BTreeMap::new(),
+            vars: BTreeMap::new(),
         }
+    }
+}
+
+/// What an explicitly named source file contributes to an expansion elsewhere.
+///
+/// A test file names the file under test; this carries that file's
+/// file-wide collections and its `${src.*}` variables. Built by the CLI
+/// (`--source`, `#source`) and the LSP (`codemmet.setSource`) from a
+/// [`ContextProvider::source_collections`] call plus
+/// [`crate::lang::source::variables`]; applied with [`Self::apply`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SourceContext {
+    /// The source path as given (reported back to editors; `src.path`).
+    pub path: String,
+    /// The source's file-wide collections (`src.*`, enum variants, struct
+    /// fields).
+    pub collections: BTreeMap<String, Collection>,
+    /// The `${src.key}` variables.
+    pub vars: BTreeMap<String, String>,
+}
+
+impl SourceContext {
+    /// Merge this source into `ctx`: its collections **replace** same-named
+    /// ones the buffer provided (an explicit source wins over the file being
+    /// edited), and its variables become `ctx.vars`.
+    pub fn apply(&self, ctx: &mut ExpansionContext) {
+        ctx.collections.extend(self.collections.clone());
+        ctx.vars.clone_from(&self.vars);
     }
 }
 

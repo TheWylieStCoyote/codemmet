@@ -842,6 +842,7 @@ impl ContextProvider for TreeSitterProvider {
             // variants and struct fields (file-wide), plus list bindings in
             // scope at the cursor.
             collections: extract::collections(&doc.language, root, text, offset),
+            vars: BTreeMap::new(),
         }
     }
 

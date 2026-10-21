@@ -37,6 +37,19 @@ vim.api.nvim_create_user_command("CodemmetSnippets", function()
   require("codemmet").snippets()
 end, { desc = "Browse codemmet snippets for this buffer and expand the picked one" })
 
+vim.api.nvim_create_user_command("CodemmetSource", function(cmd)
+  local path = vim.trim(cmd.args)
+  if path == "none" or path == "-" then
+    require("codemmet").source({ clear = true })
+  else
+    require("codemmet").source({ path = path ~= "" and path or nil })
+  end
+end, {
+  nargs = "?",
+  complete = "file",
+  desc = "Set the source file whose functions/types/methods feed src.* collections (none clears)",
+})
+
 vim.api.nvim_create_user_command("CodemmetContext", function()
   require("codemmet").context()
 end, { desc = "Show the codemmet context (scopes, collections) at the cursor" })

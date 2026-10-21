@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::io::Read as _;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Args;
@@ -11,7 +12,8 @@ use codemmet_core::engine::ExpandError;
 use codemmet_core::snippet::render::Expansion;
 
 use super::{
-    EXIT_PARSE, EXIT_RENDER, Sources, Tabstops, config_failure, load_registry, resolve_indent_unit,
+    EXIT_PARSE, EXIT_RENDER, Sources, Tabstops, config_failure, load_registry, load_source,
+    resolve_indent_unit,
 };
 
 /// Arguments for `codemmet expand`.
@@ -53,6 +55,13 @@ pub struct ExpandArgs {
     #[arg(long, value_name = "NAME.key=v1,v2,…")]
     member: Vec<String>,
 
+    /// A source file whose functions, types, methods, enums, and struct
+    /// fields become collections (`src.fns`, `src.Point.methods`, `Msg`, …)
+    /// and whose path sets the `${src.*}` variables. `--repeat` collections
+    /// layer on top.
+    #[arg(long, value_name = "FILE")]
+    source: Option<PathBuf>,
+
     /// The abbreviation; omitted or `-` reads it from stdin.
     #[arg(value_name = "ABBR")]
     abbr: Option<String>,
@@ -85,7 +94,14 @@ pub fn run(sources: &Sources, args: &ExpandArgs) -> ExitCode {
 
     let engine = Engine::with_registry(registry);
     let mut ctx = ExpansionContext::plain(args.base_indent.clone(), indent_unit);
-    ctx.collections = collections;
+    if let Some(path) = &args.source {
+        match load_source(path, &args.lang) {
+            Ok(source) => source.apply(&mut ctx),
+            Err(msg) => return config_failure(&msg),
+        }
+    }
+    // Collection precedence: --source < --repeat.
+    ctx.collections.extend(collections);
     match engine.expand(&abbr, &args.lang, &ctx, args.tabstops.into()) {
         Ok(expansion) => emit(&expansion, &args.lang, args.json),
         Err(err) => {

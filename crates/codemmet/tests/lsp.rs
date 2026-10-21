@@ -220,7 +220,8 @@ fn initialize_advertises_capabilities_and_exits_cleanly() {
             "codemmet.preview",
             "codemmet.list",
             "codemmet.context",
-            "codemmet.reloadSnippets"
+            "codemmet.reloadSnippets",
+            "codemmet.setSource"
         ])
     );
     assert_eq!(capabilities["codeActionProvider"], json!(true));
@@ -1306,5 +1307,90 @@ fn execute_command_preview_keeps_on_incomplete_abbreviation() {
         json!({}),
         "expected the keep signal `{{}}`, got {result}"
     );
+    client.shutdown();
+}
+
+/// `codemmet.setSource` points a document at another file: that file's
+/// functions back `src.fns` (replacing the buffer's own), its path sets the
+/// `${src.*}` variables, and `codemmet.context` reports both. A null source
+/// clears it.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn execute_command_set_source_feeds_collections_and_vars() {
+    let dir = scratch_dir("lsp-set-source");
+    let src = dir.join("src").join("geometry.rs");
+    std::fs::create_dir_all(src.parent().expect("parent")).expect("mkdir");
+    std::fs::write(&src, "pub fn area(w: f64, h: f64) -> f64 { w * h }\n").expect("write");
+
+    let (mut client, _) = LspClient::start("set-source", &["utf-8"], &json!({}));
+    client.open(URI, "rust", "fn main() {\n    \n}\n");
+    let set = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.setSource",
+            "arguments": [{ "uri": URI, "source": src.to_str().expect("UTF-8 path") }],
+        }),
+    );
+    assert_eq!(set["source"], json!(src.display().to_string()));
+    assert!(
+        set["collections"]
+            .as_array()
+            .expect("collections")
+            .contains(&json!("src.fns")),
+        "setSource result: {set}"
+    );
+
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.context",
+            "arguments": [{ "uri": URI, "position": { "line": 1, "character": 4 } }],
+        }),
+    );
+    assert_eq!(result["source"], json!(src.display().to_string()));
+    assert_eq!(result["vars"]["module"], json!("crate::geometry"));
+    assert_eq!(result["vars"]["stem"], json!("geometry"));
+    let fns = result["collections"]
+        .as_array()
+        .expect("collections")
+        .iter()
+        .find(|c| c["name"] == json!("src.fns"))
+        .expect("src.fns present");
+    // The source's `area`, not the buffer's `main`.
+    assert_eq!(fns["items"][0]["value"], json!("area"));
+
+    // A bad path is an error and leaves the source untouched.
+    let err = client.request_err(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.setSource",
+            "arguments": [{ "uri": URI, "source": "/nonexistent/geo.rs" }],
+        }),
+    );
+    assert!(
+        err["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("not a readable file")),
+        "error: {err}"
+    );
+
+    // Null clears: back to the buffer's own definitions, no vars.
+    let cleared = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.setSource",
+            "arguments": [{ "uri": URI, "source": null }],
+        }),
+    );
+    assert_eq!(cleared["source"], Value::Null);
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.context",
+            "arguments": [{ "uri": URI, "position": { "line": 1, "character": 4 } }],
+        }),
+    );
+    assert_eq!(result["source"], Value::Null);
+    assert_eq!(result["vars"], json!({}));
     client.shutdown();
 }

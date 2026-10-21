@@ -2,7 +2,7 @@
 //! trigger-prefix discovery items for the segment being typed.
 
 use codemmet_core::Engine;
-use codemmet_core::context::{ContextProvider, DocSnapshot, ExpansionContext};
+use codemmet_core::context::{ContextProvider, DocSnapshot, ExpansionContext, SourceContext};
 use codemmet_core::lang::registry::LanguageSnippets;
 use codemmet_core::snippet::render::TabstopMode;
 use lsp_types::{
@@ -34,6 +34,7 @@ pub fn compute(
     offset: usize,
     mode: CompletionMode,
     encoding: PositionEncoding,
+    source: Option<&SourceContext>,
 ) -> Option<Vec<CompletionItem>> {
     if mode == CompletionMode::Off {
         return None;
@@ -51,6 +52,9 @@ pub fn compute(
     if ctx.in_string_or_comment {
         // No items at all inside strings/comments, prefix discovery included.
         return None;
+    }
+    if let Some(source) = source {
+        source.apply(&mut ctx);
     }
     // LSP snippet clients (VS Code, Neovim's `vim.snippet`) re-indent snippet
     // continuation lines from the insertion position, so a server-side base
@@ -245,6 +249,7 @@ mod tests {
             text.len(),
             mode,
             PositionEncoding::Utf8,
+            None,
         )
     }
 
@@ -379,6 +384,7 @@ mod tests {
             6,
             CompletionMode::Always,
             PositionEncoding::Utf8,
+            None,
         );
         assert!(items.is_none());
     }

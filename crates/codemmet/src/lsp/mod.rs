@@ -21,7 +21,7 @@ use std::rc::Rc;
 use codemmet_core::Engine;
 use codemmet_core::config::loader::ConfigError;
 use codemmet_core::config::paths::PathMapping;
-use codemmet_core::context::{ContextProvider, DocSnapshot};
+use codemmet_core::context::{ContextProvider, DocSnapshot, SourceContext};
 use codemmet_core::lang::profile;
 use codemmet_core::lang::registry::{Registry, resolve_override_dirs};
 #[cfg(feature = "tree-sitter")]
@@ -180,9 +180,40 @@ struct Server {
     provider: Box<dyn ContextProvider>,
     /// Per-document engine resolution + cache.
     resolver: SnippetResolver,
+    /// Explicit source files per document (`codemmet.setSource`): the file
+    /// whose definitions feed `src.*` collections and `${src.*}` variables
+    /// when expanding in that document (a test file).
+    sources: HashMap<Uri, PathBuf>,
 }
 
 impl Server {
+    /// The explicit source context for the document at `uri`, if one was
+    /// set and still reads. Re-read per request so edits to the source file
+    /// show up; the provider's tree cache makes an unchanged file free.
+    fn source_context(&mut self, uri: &Uri) -> Option<SourceContext> {
+        let path = self.sources.get(uri)?.clone();
+        let text = std::fs::read_to_string(&path).ok()?;
+        let language = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .and_then(profile::find)
+            .or_else(|| {
+                self.docs
+                    .get(uri)
+                    .and_then(|doc| profile::find(&doc.language_id))
+            })
+            .map(|p| p.id)?;
+        let doc = DocSnapshot {
+            language: language.to_owned(),
+            text,
+        };
+        Some(SourceContext {
+            path: path.display().to_string(),
+            collections: self.provider.source_collections(&doc),
+            vars: codemmet_core::lang::source::variables(language, &path, &doc.text),
+        })
+    }
+
     /// The engine resolved for the document at `uri` (path-scoped tiers).
     fn engine_for(&mut self, uri: &Uri) -> Rc<Engine> {
         let path = file_uri_to_path(uri.as_str());
@@ -322,6 +353,7 @@ fn serve_connection(
         completion_mode: options.completion_mode(),
         encoding,
         provider: default_provider(),
+        sources: HashMap::new(),
         resolver,
     };
 
@@ -398,6 +430,7 @@ fn capabilities(encoding: PositionEncoding) -> ServerCapabilities {
                 "codemmet.list".to_owned(),
                 "codemmet.context".to_owned(),
                 "codemmet.reloadSnippets".to_owned(),
+                "codemmet.setSource".to_owned(),
             ],
             ..ExecuteCommandOptions::default()
         }),
@@ -430,6 +463,7 @@ impl Server {
         let position = params.text_document_position;
         let uri = &position.text_document.uri;
         let path = file_uri_to_path(uri.as_str());
+        let source = self.source_context(uri);
         let Some(doc) = self.docs.get(uri) else {
             // An unopened document is not an error; there is just nothing
             // to complete.
@@ -449,6 +483,7 @@ impl Server {
             offset,
             self.completion_mode,
             self.encoding,
+            source.as_ref(),
         );
         match serde_json::to_value(items) {
             Ok(value) => Response::new_ok(request.id, value),
@@ -537,6 +572,11 @@ impl Server {
                 self.resolver.reload();
                 Ok(serde_json::json!({ "reloaded": true }))
             }
+            // Set (or clear, with a null `source`) the explicit source file
+            // for a document; see `commands::set_source`.
+            "codemmet.setSource" => {
+                command_args(params.arguments).and_then(|args| commands::set_source(self, &args))
+            }
             other => Err(CommandError(format!("unknown command `{other}`"))),
         };
         match result {
@@ -595,6 +635,7 @@ impl Server {
             "textDocument/didClose" => {
                 if let Ok(params) = serde_json::from_value::<DidCloseTextDocumentParams>(params) {
                     self.docs.remove(&params.text_document.uri);
+                    self.sources.remove(&params.text_document.uri);
                 }
             }
             _ => {}

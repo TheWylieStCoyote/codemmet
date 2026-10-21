@@ -74,6 +74,20 @@ pub enum Span {
         /// The `${value:default}` fallback, used when there is no item.
         default: Option<String>,
     },
+    /// `${src.key}` / `${src.key|transform}` / `${src.key:default}`: a
+    /// source-file variable (`module`, `file`, `stem`, `dir`, `path`),
+    /// resolved from [`ExpansionContext::vars`](crate::context::ExpansionContext).
+    /// Renders the value (re-cased by `transform`), or — when no source is
+    /// known — a tabstop carrying `default`, else the key itself, so the
+    /// user always gets a hole to fill rather than silent empty text.
+    Variable {
+        /// The key after `src.`.
+        key: String,
+        /// The case transform from `${src.key|snake}`, if any.
+        transform: Option<CaseTransform>,
+        /// The `${src.key:default}` fallback placeholder.
+        default: Option<String>,
+    },
     /// `${child}`: where `>`-nested children render, one indent level deeper.
     ///
     /// At most one per template. For a leaf node this degrades to the final

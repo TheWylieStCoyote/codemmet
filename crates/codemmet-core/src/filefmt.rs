@@ -1,7 +1,8 @@
 //! The `.codemmet` source-file format: line classification for file mode.
 //!
 //! A `.codemmet` file is UTF-8 text rendered line by line (see
-//! `FILE_MODE_PLAN.md`): directives (`#lang rust`, `#repeat Msg=Quit,Move`)
+//! `FILE_MODE_PLAN.md`): directives (`#lang rust`, `#repeat Msg=Quit,Move`,
+//! `#source src/geometry.rs`)
 //! configure expansion, `#`-space lines are comments, blank lines pass
 //! through, and every other line is one abbreviation whose leading
 //! whitespace is that line's base indent.
@@ -16,7 +17,7 @@
 /// By design a directive mirrors the long CLI flag of the same name and
 /// reuses its value grammar, so future flags slot in here without any
 /// namespace work.
-pub const DIRECTIVES: &[&str] = &["lang", "repeat"];
+pub const DIRECTIVES: &[&str] = &["lang", "repeat", "source"];
 
 /// One classified line of a `.codemmet` file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,7 +47,7 @@ pub enum Line<'a> {
 pub enum LineError {
     /// `#word` where `word` is not a known directive. Typos must fail
     /// loudly rather than be silently dropped as comments.
-    #[error("unknown directive `#{0}` (known: #lang, #repeat; start a comment with `# `)")]
+    #[error("unknown directive `#{0}` (known: #lang, #repeat, #source; start a comment with `# `)")]
     UnknownDirective(String),
 }
 

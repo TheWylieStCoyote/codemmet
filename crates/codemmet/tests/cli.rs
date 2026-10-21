@@ -1369,3 +1369,123 @@ fn vars_missing_file_exits_3() {
         stderr(&out)
     );
 }
+
+// ---------------------------------------------------------------------------
+// --source / #source (SOURCE_COLLECTIONS_PLAN.md, milestone 2)
+// ---------------------------------------------------------------------------
+
+/// A user pack whose trigger reads `${src.*}` variables.
+fn write_usesrc_pack(dir: &std::path::Path) {
+    std::fs::write(
+        dir.join("rust.toml"),
+        "[meta]\nlanguage = \"rust\"\n\n[snippets.usesrc]\ndescription = \"import the source module\"\nbody = '''\nuse ${src.module}::*; // ${src.file}\n'''\n",
+    )
+    .expect("pack should be writable");
+}
+
+/// `--source` feeds the source file's functions as `src.fns`, so a repeat
+/// over them names one copy per function; `${src.module}` resolves from the
+/// path.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn expand_source_feeds_src_collections_and_variables() {
+    let dir = scratch_dir("expand-source");
+    write_usesrc_pack(&dir);
+    let src = dir.join("src").join("geometry.rs");
+    std::fs::create_dir_all(src.parent().expect("parent")).expect("mkdir");
+    std::fs::write(
+        &src,
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\nfn helper() {}\n",
+    )
+    .expect("fixture should be writable");
+    let out = bin()
+        .args([
+            "expand",
+            "--lang",
+            "rust",
+            "--source",
+            src.to_str().expect("UTF-8 path"),
+            "usesrc+test*@src.fns",
+            "--config",
+            dir.to_str().expect("UTF-8 path"),
+        ])
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("::geometry::*; // geometry.rs\n"),
+        "stdout: {text}"
+    );
+    assert!(text.contains("fn area() {"), "stdout: {text}");
+    assert!(text.contains("fn helper() {"), "stdout: {text}");
+}
+
+/// Without a source, `${src.*}` renders as a tabstop carrying the key, so
+/// the hole is visible in keep mode and the key stands in strip mode.
+#[test]
+fn src_variables_without_a_source_are_tabstops() {
+    let dir = scratch_dir("expand-nosource");
+    write_usesrc_pack(&dir);
+    let out = bin()
+        .args([
+            "expand",
+            "--lang",
+            "rust",
+            "--tabstops",
+            "keep",
+            "usesrc",
+            "--config",
+        ])
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "use ${1:module}::*; // ${2:file}$0\n");
+}
+
+#[test]
+fn expand_missing_source_exits_3() {
+    let out = run(
+        "expand-badsource",
+        &[
+            "expand",
+            "--lang",
+            "rust",
+            "--source",
+            "/nonexistent/geo.rs",
+            "pr",
+        ],
+    );
+    assert_eq!(code(&out), 3);
+    assert!(
+        stderr(&out).contains("cannot read --source"),
+        "stderr: {}",
+        stderr(&out)
+    );
+}
+
+/// `#source` in a `.codemmet` file is the directive form of `--source`.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn render_source_directive_feeds_src_collections() {
+    let dir = scratch_dir("render-source");
+    let src = dir.join("geometry.py");
+    std::fs::write(
+        &src,
+        "def area(w, h):\n    return w * h\n\ndef _helper():\n    pass\n",
+    )
+    .expect("fixture should be writable");
+    let file = dir.join("test_geometry.py.codemmet");
+    std::fs::write(
+        &file,
+        format!("#source {}\n\ntest*@src.fns\n", src.display()),
+    )
+    .expect("fixture should be writable");
+    let out = run(
+        "render-source",
+        &["render", file.to_str().expect("UTF-8 path")],
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "def test_area():\n\ndef test__helper():\n\n");
+}

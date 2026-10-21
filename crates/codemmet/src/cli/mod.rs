@@ -21,7 +21,8 @@ use std::process::ExitCode;
 use clap::{CommandFactory as _, Parser, Subcommand, ValueEnum};
 use codemmet_core::config::loader::{ConfigError, default_user_snippets_dir};
 use codemmet_core::config::paths::{PathMapping, default_paths_config};
-use codemmet_core::context::IndentUnit;
+use codemmet_core::context::{DocSnapshot, IndentUnit, SourceContext};
+use codemmet_core::lang::profile;
 use codemmet_core::lang::registry::{Registry, find_project_snippets_dirs};
 use codemmet_core::snippet::render::TabstopMode;
 
@@ -258,6 +259,31 @@ fn print_version(full: bool) {
     println!("target:   {}", env!("CODEMMET_BUILD_TARGET"));
     println!("rustc:    {}", env!("CODEMMET_RUSTC"));
     println!("features: {}", env!("CODEMMET_FEATURES"));
+}
+
+/// Read an explicit `--source` file: its collections (functions, types,
+/// methods, enums, struct fields) and `${src.*}` variables. The language is
+/// inferred from the extension, falling back to `lang_hint` (the language
+/// being expanded into).
+pub fn load_source(path: &Path, lang_hint: &str) -> Result<SourceContext, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|err| format!("cannot read --source {}: {err}", path.display()))?;
+    let language = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .and_then(profile::find)
+        .or_else(|| profile::find(lang_hint))
+        .map(|p| p.id)
+        .ok_or_else(|| format!("cannot infer the language of --source {}", path.display()))?;
+    let doc = DocSnapshot {
+        language: language.to_owned(),
+        text,
+    };
+    Ok(SourceContext {
+        path: path.display().to_string(),
+        collections: render::default_provider().source_collections(&doc),
+        vars: codemmet_core::lang::source::variables(language, path, &doc.text),
+    })
 }
 
 /// Load builtin packs merged with the resolved override tiers.
