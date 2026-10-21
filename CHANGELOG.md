@@ -56,6 +56,14 @@ follows [Semantic Versioning](https://semver.org/).
   built `subject` — so `tmeth*@src.Type.methods` now covers statics and
   constructors without `?all` producing wrong calls. `codemmet.list`'s
   `activeContext` reports scope variants only.
+- **Test-file scaffolds.** `tfile` in every pack: `codemmet scaffold
+  --source src/geometry.py tfile --write` creates the sibling test file with
+  its import line and one test per public function and method (Python
+  `test_<stem>.py`, Go `<stem>_test.go`, C `test_<stem>.c`, C++
+  `<stem>_test.cpp`, JS/TS `<stem>.test.js/.ts`); Rust appends an inline
+  `#[cfg(test)] mod tests` to the source itself. Multi-file `path` templates
+  and `on_create` headers accept `${src.*}` variables, and a piece may
+  `target = "source"`. `:CodemmetScaffold` passes the buffer's source.
 - **Docs and tests.** A tutorial chapter ("Generating tests from a file")
   with the exact outputs, the Neovim flow in the editor guide, and a headless
   end-to-end test (`tests/nvim/source.lua`) covering `:CodemmetSource`,

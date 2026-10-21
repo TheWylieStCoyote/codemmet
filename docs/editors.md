@@ -290,7 +290,12 @@ The flow, for a Rust crate with `src/geometry.rs` under test:
    `?…` chain to change the selection.
 4. `:CodemmetContext` shows which source is active, its `${src.*}` variables
    (`module` is `crate::geometry`), and every collection it yields.
-5. `:CodemmetSource none` forgets it.
+5. `:CodemmetScaffold tfile` writes a whole test file for the source in one
+   go — `test_geometry.py` beside it in Python, a `_test.go` / `_test.cpp` /
+   `.test.ts` sibling elsewhere, an appended `mod tests` in Rust — and opens
+   the primary file as a live snippet. `:CodemmetScaffold` passes the
+   buffer's source to the CLI as `--source`.
+6. `:CodemmetSource none` forgets it.
 
 The source is server state for the buffer, so the live preview and the
 completion menu see it too — a half-typed `tfn*@src.` previews against the

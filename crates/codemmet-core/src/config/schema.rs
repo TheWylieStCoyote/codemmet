@@ -84,12 +84,13 @@ pub struct SnippetDef {
 #[serde(deny_unknown_fields)]
 pub struct FileDef {
     /// Target path relative to the scaffold root, `${param}`-substituted
-    /// (e.g. `"${app}/models.py"`). Mutually exclusive with `target`.
+    /// (e.g. `"${app}/models.py"`); `${src.stem}`, `${src.dir}`, … resolve
+    /// from the `--source` file. Mutually exclusive with `target`.
     #[serde(default)]
     pub path: Option<String>,
-    /// Target derived from the invocation's current file: `"self"` (the current
-    /// file) or a sibling by extension (e.g. `".cpp"`). Mutually exclusive with
-    /// `path`.
+    /// Target derived from the invocation: `"self"` (the current file), a
+    /// sibling by extension (e.g. `".cpp"`), or `"source"` (the explicit
+    /// `--source` file). Mutually exclusive with `path`.
     #[serde(default)]
     pub target: Option<String>,
     /// Template body for this file (LSP snippet syntax plus `${param}`).

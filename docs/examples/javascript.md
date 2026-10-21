@@ -820,6 +820,21 @@ test("works", () => {
 
 Composing `>aeq` drops an equality expectation inside the test body.
 
+### `tfile`
+
+Create <source>.test.js beside the --source file with a Jest test per exported fn/method (multi-file).
+
+```sh
+codemmet scaffold --lang javascript --source geometry.js tfile --write
+```
+
+With the `geometry.js` from [`tfn`](#tfn), this creates `geometry.test.js` next to the source, starting with `import * as geometry from "./geometry";`, followed by
+the `tfn` tests for its public functions and the `tmeth` tests for its methods
+— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
+the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
+`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+
 ### `tfn`
 
 Jest test calling a function (data-driven).

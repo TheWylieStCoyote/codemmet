@@ -861,6 +861,21 @@ test("works", () => {
 
 Expands to a `test("...", () => { })` case. Nested triggers such as `aeq` fill the test body with assertions.
 
+### `tfile`
+
+Create <source>.test.ts beside the --source file with a Jest test per exported fn/method (multi-file).
+
+```sh
+codemmet scaffold --lang typescript --source geometry.ts tfile --write
+```
+
+With the `geometry.ts` from [`tfn`](#tfn), this creates `geometry.test.ts` next to the source, starting with `import * as geometry from "./geometry";`, followed by
+the `tfn` tests for its public functions and the `tmeth` tests for its methods
+— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
+the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
+`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+
 ### `tfn`
 
 Jest test calling a function (data-driven).

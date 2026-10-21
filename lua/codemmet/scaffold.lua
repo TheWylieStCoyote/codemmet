@@ -142,6 +142,12 @@ local function run(binary, invocation, bufnr)
   if file ~= "" then
     vim.list_extend(cmd, { "--from", file }) -- for `self`/sibling targets
   end
+  -- The buffer's `:CodemmetSource` file feeds `src.*` collections, `${src.*}`
+  -- paths, and `target = "source"` pieces (the `tfile` test scaffolds).
+  local source = vim.b[bufnr].codemmet_source
+  if type(source) == "string" and source ~= "" then
+    vim.list_extend(cmd, { "--source", source })
+  end
   vim.list_extend(cmd, { "--tabstops", "keep", "--json", invocation })
   vim.system(cmd, { cwd = root, text = true }, function(obj)
     vim.schedule(function()

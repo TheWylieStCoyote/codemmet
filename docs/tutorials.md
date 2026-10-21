@@ -553,7 +553,16 @@ The same works in **Neovim**, where the source is set once per buffer:
 
 Then type `tfn*@src.fns` and press `<A-e>`. The preview and the completion
 menu see the source too, and `:CodemmetContext` shows which file is active
-and what it yields. Every language has `tfn` and `tmeth` (pytest, C `assert`,
+and what it yields. To get the whole test file at once, with the import line
+and one test per public function and method, scaffold it:
+
+```sh
+codemmet scaffold --lang python --source geometry.py tfile --write
+# create test_geometry.py
+```
+
+(`:CodemmetScaffold tfile` in Neovim.) Rust's `tfile` appends an inline
+`#[cfg(test)] mod tests` to the source file instead. Every language has `tfn` and `tmeth` (pytest, C `assert`,
 GoogleTest, Jest, Go `testing`); see [editor setup](editors.md#generating-tests-from-a-source-file)
 for the editor side and [source
 collections](context-codegen.md#source-collections-functions-types-and-methods)

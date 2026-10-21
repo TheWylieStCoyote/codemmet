@@ -637,6 +637,21 @@ typedef int name_t;
 
 `td` takes no arguments and leaves tabstops for the underlying type (defaulting to `int`) and the new type name.
 
+### `tfile`
+
+Create test_<source>.c beside the --source file with an assert test per value-returning fn (multi-file).
+
+```sh
+codemmet scaffold --lang c --source geometry.c tfile --write
+```
+
+With the `geometry.c` from [`tfn`](#tfn), this creates `test_geometry.c` next to the source, starting with `#include "geometry.h"` and `#include <assert.h>`, followed by
+the `tfn` tests for its public functions
+— exactly what `tfn*@src.fns` expands to. Run without
+`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
+the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
+`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+
 ### `tfn`
 
 assert-based test calling a function (data-driven).

@@ -930,6 +930,21 @@ func TestAdd(t *testing.T) {
 
 `test:Add` builds the standard `func TestAdd(t *testing.T)`. The composed form nests an `aeq` equality assertion into the body.
 
+### `tfile`
+
+Create <source>_test.go beside the --source file with a testing.T test per exported fn/method (multi-file).
+
+```sh
+codemmet scaffold --lang go --source geometry.go tfile --write
+```
+
+With the `geometry.go` from [`tfn`](#tfn), this creates `geometry_test.go` next to the source, starting with `package geo` and `import "testing"`, followed by
+the `tfn` tests for its public functions and the `tmeth` tests for its methods
+— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
+the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
+`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+
 ### `tfn`
 
 testing.T test calling a function (data-driven).

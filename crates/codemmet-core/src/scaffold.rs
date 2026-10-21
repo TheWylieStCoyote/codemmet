@@ -38,6 +38,8 @@ pub struct ScaffoldOptions<'a> {
     pub root: &'a Path,
     /// The file the invocation happened in, for `self`/sibling targets.
     pub current_file: Option<&'a Path>,
+    /// The explicit source file (`--source`), for `source` targets.
+    pub source_file: Option<&'a Path>,
 }
 
 /// One entry of the expansion manifest: content destined for one file.
@@ -89,6 +91,15 @@ pub enum ScaffoldError {
          (pass `--from <FILE>`)"
     )]
     NoCurrentFile {
+        /// The offending section label.
+        label: String,
+    },
+    /// A `source` target was used with no source file available.
+    #[error(
+        "file section `{label}` targets the source file, but none was given \
+         (pass `--source <FILE>`)"
+    )]
+    NoSourceFile {
         /// The offending section label.
         label: String,
     },
@@ -173,11 +184,14 @@ pub fn scaffold(
         }
         out.push(FileOutput {
             label: piece.label.clone(),
-            path: resolve_path(piece, &values, opts)?,
+            path: resolve_path(piece, &values, &ctx.vars, opts)?,
             content,
-            on_create: piece.on_create.as_deref().map(|p| subst(p, &values)),
+            on_create: piece
+                .on_create
+                .as_deref()
+                .map(|p| subst(p, &values, &ctx.vars)),
             on_exists: piece.on_exists,
-            into: piece.into.as_deref().map(|p| subst(p, &values)),
+            into: piece.into.as_deref().map(|p| subst(p, &values, &ctx.vars)),
             requires,
             primary: is_primary,
         });
@@ -228,23 +242,27 @@ fn bind_values(snippet: &CompiledSnippet, args: &[String], remainder: &str) -> V
 /// Concrete parameter values, by name.
 type Values = BTreeMap<String, String>;
 
-/// Substitute `${name}` markers with their values, leaving any other `${…}`
-/// (tabstops like `${1:x}`, data-driven `${value…}` spans) untouched.
+/// Substitute `${name}` markers with their values — and `${src.key}` markers
+/// with the source-file variables — leaving any other `${…}` (tabstops like
+/// `${1:x}`, data-driven `${value…}` spans) untouched.
 ///
 /// A `${name|transform}` marker applies the case transform to the value
 /// (`${field|snake}` with `field = maxSize` → `max_size`), matching the
 /// template grammar. An unknown base name is left untouched either way, so
 /// engine-owned spans like `${value|snake}` pass through to the renderer.
-fn subst(text: &str, values: &Values) -> String {
+fn subst(text: &str, values: &Values, vars: &BTreeMap<String, String>) -> String {
+    let lookup = |base: &str| -> Option<&String> {
+        base.strip_prefix("src.")
+            .map_or_else(|| values.get(base), |key| vars.get(key))
+    };
     substitute_markers(text, |name| {
         if let Some((base, transform)) = name.split_once('|')
-            && let Some(value) = values.get(base)
+            && let Some(value) = lookup(base)
             && let Some(transform) = CaseTransform::parse(transform)
         {
             return transform.apply(value);
         }
-        values
-            .get(name)
+        lookup(name)
             .cloned()
             .unwrap_or_else(|| format!("${{{name}}}"))
     })
@@ -268,6 +286,7 @@ fn choose_primary(files: &[CompiledFilePiece]) -> usize {
 fn resolve_path(
     piece: &CompiledFilePiece,
     values: &Values,
+    vars: &BTreeMap<String, String>,
     opts: &ScaffoldOptions,
 ) -> Result<PathBuf, ScaffoldError> {
     let current = || {
@@ -277,10 +296,17 @@ fn resolve_path(
             })
     };
     match &piece.target {
-        FileTarget::Path(template) => Ok(opts.root.join(subst(template, values))),
+        FileTarget::Path(template) => Ok(opts.root.join(subst(template, values, vars))),
         FileTarget::SelfFile => current().map(Path::to_path_buf),
         // `.cpp` → the current file with its extension swapped to `cpp`.
         FileTarget::Sibling(ext) => Ok(current()?.with_extension(ext.trim_start_matches('.'))),
+        FileTarget::Source => {
+            opts.source_file
+                .map(Path::to_path_buf)
+                .ok_or_else(|| ScaffoldError::NoSourceFile {
+                    label: piece.label.clone(),
+                })
+        }
     }
 }
 
@@ -296,7 +322,7 @@ fn render_piece(
 ) -> Result<(String, Vec<String>), ScaffoldError> {
     match &piece.content {
         PieceContent::Body(body) => {
-            let resolved = subst(body, values);
+            let resolved = subst(body, values, &ctx.vars);
             let template = parse_template(&resolved).map_err(|source| ScaffoldError::Body {
                 label: piece.label.clone(),
                 source,
@@ -310,7 +336,7 @@ fn render_piece(
             Ok((content, Vec::new()))
         }
         PieceContent::Expands(abbr) => {
-            let resolved = subst(abbr, values);
+            let resolved = subst(abbr, values, &ctx.vars);
             engine
                 .expand(&resolved, language, ctx, mode)
                 .map(|e| (e.body, e.requires))
@@ -432,11 +458,39 @@ mod tests {
     #[test]
     fn subst_replaces_params_and_keeps_tabstops() {
         let v = values(&[("app", "blog")]);
-        assert_eq!(subst("${app}/models.py", &v), "blog/models.py");
+        let no_vars = BTreeMap::new();
+        assert_eq!(subst("${app}/models.py", &v, &no_vars), "blog/models.py");
         // `${1:x}` and `$0` are not params and must survive untouched.
         assert_eq!(
-            subst("def ${app}():\n\t${1:pass}$0", &v),
+            subst("def ${app}():\n\t${1:pass}$0", &v, &no_vars),
             "def blog():\n\t${1:pass}$0"
+        );
+    }
+
+    /// `${src.key}` (with an optional transform) resolves from the source
+    /// variables; without a source it stays a marker, like an unknown param.
+    #[test]
+    fn subst_resolves_source_variables() {
+        let v = values(&[]);
+        let mut vars = BTreeMap::new();
+        vars.insert("stem".to_owned(), "geo_shapes".to_owned());
+        vars.insert("dir".to_owned(), "src".to_owned());
+        vars.insert("module".to_owned(), "./geo_shapes".to_owned());
+        assert_eq!(
+            subst("${src.dir}/${src.stem}.test.js", &v, &vars),
+            "src/geo_shapes.test.js"
+        );
+        assert_eq!(
+            subst(
+                "import * as ${src.stem|camel} from \"${src.module}\";",
+                &v,
+                &vars
+            ),
+            "import * as geoShapes from \"./geo_shapes\";"
+        );
+        assert_eq!(
+            subst("${src.stem}.rs", &v, &BTreeMap::new()),
+            "${src.stem}.rs"
         );
     }
 
@@ -467,35 +521,49 @@ mod tests {
         let cur = Path::new("/proj/src/widget.hpp");
         let v = values(&[("app", "blog")]);
 
+        let no_vars = BTreeMap::new();
         let opts_no_file = ScaffoldOptions {
             root,
             current_file: None,
+            source_file: None,
         };
         let path_piece = piece("m", FileTarget::Path("${app}/models.py".to_owned()), false);
         assert_eq!(
-            resolve_path(&path_piece, &v, &opts_no_file).expect("path target resolves"),
+            resolve_path(&path_piece, &v, &no_vars, &opts_no_file).expect("path target resolves"),
             Path::new("/proj/blog/models.py")
         );
 
+        let src = Path::new("/proj/src/geometry.rs");
         let opts = ScaffoldOptions {
             root,
             current_file: Some(cur),
+            source_file: Some(src),
         };
         let self_piece = piece("s", FileTarget::SelfFile, false);
         assert_eq!(
-            resolve_path(&self_piece, &v, &opts).expect("self target resolves"),
+            resolve_path(&self_piece, &v, &no_vars, &opts).expect("self target resolves"),
             cur
         );
         let sib = piece("d", FileTarget::Sibling(".cpp".to_owned()), false);
         assert_eq!(
-            resolve_path(&sib, &v, &opts).expect("sibling target resolves"),
+            resolve_path(&sib, &v, &no_vars, &opts).expect("sibling target resolves"),
             Path::new("/proj/src/widget.cpp")
         );
+        let source_piece = piece("t", FileTarget::Source, false);
+        assert_eq!(
+            resolve_path(&source_piece, &v, &no_vars, &opts).expect("source target resolves"),
+            src
+        );
 
-        // A self/sibling target with no current file is an error.
+        // A self/sibling target with no current file is an error; so is a
+        // source target with no source.
         assert!(matches!(
-            resolve_path(&self_piece, &v, &opts_no_file),
+            resolve_path(&self_piece, &v, &no_vars, &opts_no_file),
             Err(ScaffoldError::NoCurrentFile { .. })
+        ));
+        assert!(matches!(
+            resolve_path(&source_piece, &v, &no_vars, &opts_no_file),
+            Err(ScaffoldError::NoSourceFile { .. })
         ));
     }
 

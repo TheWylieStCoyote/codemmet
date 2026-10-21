@@ -784,6 +784,21 @@ def test_parses():
 
 The `>` child operator nests an equality assertion inside the test.
 
+### `tfile`
+
+Create test_<source>.py beside the --source file with a pytest per public fn/method (multi-file).
+
+```sh
+codemmet scaffold --lang python --source geometry.py tfile --write
+```
+
+With the `geometry.py` from [`tfn`](#tfn), this creates `test_geometry.py` next to the source, starting with `from geometry import *`, followed by
+the `tfn` tests for its public functions and the `tmeth` tests for its methods
+— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
+the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
+`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+
 ### `tfn`
 
 pytest test calling a function (data-driven).

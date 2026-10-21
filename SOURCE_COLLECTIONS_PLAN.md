@@ -313,6 +313,7 @@ depend on earlier ones.
 - **Nested functions / closures**: excluded from `src.fns` (only functions
   whose enclosing containers are module-like count).
 - **Test framework selection** per project (decision 8).
-- **Multi-file test scaffolds** (`tests*@src.fns` that *creates* the test file
-  with the import line): needs `${src.*}` in multi-file `path` templates.
-  Follows naturally once milestones 2 and 4 are in.
+- ~~**Multi-file test scaffolds**~~ *(done)*: `tfile` in every pack —
+  `${src.*}` resolves in multi-file `path` templates and `on_create`
+  headers, and `target = "source"` writes into the source file (Rust appends
+  an inline `mod tests`).

@@ -289,3 +289,13 @@ TEST(${value.owner}Test, ${value|pascal}) {
 	EXPECT_EQ(${value.owner}::${value}(${value.args}), ${1:expected});
 }
 '''
+
+[snippets.tfile]
+description = "create <source>_test.cpp beside the --source file with a GoogleTest per public fn/method (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/${src.stem}_test.cpp"
+on_exists = "create"
+on_create = '#include "${src.module}"'
+primary = true
+expands = "tfn*@src.fns+tmeth*@src.methods"

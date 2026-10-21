@@ -413,3 +413,13 @@ func Test${value.owner|pascal}${value|pascal}(t *testing.T) {
 	}
 }
 '''
+
+[snippets.tfile]
+description = "create <source>_test.go beside the --source file with a testing.T test per exported fn/method (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/${src.stem}_test.go"
+on_exists = "create"
+on_create = "package ${src.module}"
+primary = true
+expands = "tfn*@src.fns+tmeth*@src.methods"

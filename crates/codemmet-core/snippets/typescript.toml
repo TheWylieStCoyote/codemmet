@@ -139,3 +139,17 @@ test("${name}", () => {
     $0
 });
 '''
+
+# --- Data-driven tests (SOURCE_COLLECTIONS_PLAN.md) -------------------------
+# `tfn`/`tmeth` are inherited from JavaScript; the test-file scaffold needs its
+# own extension.
+
+[snippets.tfile]
+description = "create <source>.test.ts beside the --source file with a Jest test per exported fn/method (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/${src.stem}.test.ts"
+on_exists = "create"
+on_create = 'import * as ${src.stem|camel} from "${src.module}";'
+primary = true
+expands = "tfn*@src.fns+tmeth*@src.methods"

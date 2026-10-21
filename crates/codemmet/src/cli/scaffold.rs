@@ -50,8 +50,9 @@ pub struct ScaffoldArgs {
     #[arg(long)]
     json: bool,
 
-    /// A source file whose definitions become collections (`src.fns`, …) and
-    /// whose path sets the `${src.*}` variables for the pieces.
+    /// A source file whose definitions become collections (`src.fns`, …),
+    /// whose path sets the `${src.*}` variables (usable in `path` templates
+    /// and `on_create`), and which `target = "source"` pieces write to.
     #[arg(long, value_name = "FILE")]
     source: Option<PathBuf>,
 
@@ -125,6 +126,7 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
     let opts = ScaffoldOptions {
         root: &args.root,
         current_file: args.from.as_deref(),
+        source_file: args.source.as_deref(),
     };
     let outputs = match scaffold(
         &engine,

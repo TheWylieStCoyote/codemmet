@@ -1570,3 +1570,98 @@ fn check_rejects_all_as_a_default_filter() {
         stderr(&out)
     );
 }
+
+// ---------------------------------------------------------------------------
+// tfile: test-file scaffolds from a --source (SOURCE_COLLECTIONS_PLAN.md)
+// ---------------------------------------------------------------------------
+
+/// `scaffold --source … tfile` creates the sibling test file: `${src.*}` in
+/// the path and `on_create`, one test per public function/method.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn scaffold_tfile_creates_a_test_file_from_the_source() {
+    let dir = scratch_dir("scaffold-tfile");
+    let src = dir.join("geometry.py");
+    std::fs::write(
+        &src,
+        "def area(w, h):\n    return w * h\n\nclass Point:\n    def __init__(self, x):\n        self.x = x\n    def length(self):\n        return self.x\n",
+    )
+    .expect("fixture should be writable");
+    let out = bin()
+        .args(["scaffold", "--lang", "python", "--json", "--root"])
+        .arg(&dir)
+        .arg("--source")
+        .arg(&src)
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let manifest: serde_json::Value =
+        serde_json::from_str(stdout(&out).trim()).expect("stdout is JSON");
+    let entry = &manifest[0];
+    assert_eq!(
+        entry["path"],
+        dir.join("test_geometry.py").display().to_string()
+    );
+    assert_eq!(entry["action"], "create");
+    assert_eq!(entry["primary"], true);
+    let content = entry["content"].as_str().expect("content is a string");
+    assert!(
+        content.starts_with("from geometry import *\n\n"),
+        "content: {content}"
+    );
+    assert!(content.contains("def test_area():"), "content: {content}");
+    assert!(
+        content.contains("def test_point_length():"),
+        "content: {content}"
+    );
+    assert!(
+        content.contains("def test_point_init():"),
+        "content: {content}"
+    );
+}
+
+/// The Rust `tfile` appends an inline `mod tests` to the source file itself
+/// (`target = "source"`); without `--source` that target is an error.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn scaffold_tfile_targets_the_source_file_in_rust() {
+    let dir = scratch_dir("scaffold-tfile-rust");
+    let src = dir.join("geometry.rs");
+    std::fs::write(&src, "pub fn area(w: f64, h: f64) -> f64 { w * h }\n")
+        .expect("fixture should be writable");
+    let out = bin()
+        .args(["scaffold", "--lang", "rust", "--json", "--root"])
+        .arg(&dir)
+        .arg("--source")
+        .arg(&src)
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let manifest: serde_json::Value =
+        serde_json::from_str(stdout(&out).trim()).expect("stdout is JSON");
+    assert_eq!(manifest[0]["path"], src.display().to_string());
+    assert_eq!(manifest[0]["action"], "append");
+    let content = manifest[0]["content"].as_str().expect("content");
+    assert!(
+        content.contains("#[cfg(test)]\nmod tests {"),
+        "content: {content}"
+    );
+    assert!(content.contains("fn area_works()"), "content: {content}");
+
+    let out = run(
+        "scaffold-tfile-nosource",
+        &["scaffold", "--lang", "rust", "tfile"],
+    );
+    assert_eq!(code(&out), 2);
+    assert!(
+        stderr(&out).contains("pass `--source <FILE>`"),
+        "stderr: {}",
+        stderr(&out)
+    );
+}

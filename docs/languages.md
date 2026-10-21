@@ -87,6 +87,7 @@ id `rust` | extensions: `rs` | LSP ids: `rust` | default indent: 4 spaces
 | [`rfn`](examples/rust.md#rfn) | function returning Result |
 | [`struct`](examples/rust.md#struct) | struct definition |
 | [`test`](examples/rust.md#test) | test function |
+| [`tfile`](examples/rust.md#tfile) | append a #[cfg(test)] module to the --source file with a test per public fn/method (multi-file) |
 | [`tfn`](examples/rust.md#tfn) | test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
 | [`tmeth`](examples/rust.md#tmeth) | test calling a method (data-driven: tmeth*@src.Type.methods; statics via Type::name) |
 | [`tmod`](examples/rust.md#tmod) | test module with cfg(test) |
@@ -133,6 +134,7 @@ id `python` | extensions: `py` | LSP ids: `python` | default indent: 4 spaces
 | [`ret`](examples/python.md#ret) | return statement |
 | [`str`](examples/python.md#str) | __str__ dunder method |
 | [`test`](examples/python.md#test) | test function (pytest style) |
+| [`tfile`](examples/python.md#tfile) | create test_<source>.py beside the --source file with a pytest per public fn/method (multi-file) |
 | [`tfn`](examples/python.md#tfn) | pytest test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
 | [`tmeth`](examples/python.md#tmeth) | pytest test calling a method (data-driven: tmeth*@src.Type.methods; classmethods/statics via the class, __init__ constructs) |
 | [`todo`](examples/python.md#todo) | TODO comment |
@@ -186,6 +188,7 @@ id `c` | extensions: `c`, `h` | LSP ids: `c` | default indent: 4 spaces
 | [`struct`](examples/c.md#struct) | typedef'd struct definition |
 | [`switch`](examples/c.md#switch) | switch statement |
 | [`td`](examples/c.md#td) | typedef declaration |
+| [`tfile`](examples/c.md#tfile) | create test_<source>.c beside the --source file with an assert test per value-returning fn (multi-file) |
 | [`tfn`](examples/c.md#tfn) | assert-based test calling a function (data-driven: tfn*@src.fns, non-static value-returning by default) |
 | [`todo`](examples/c.md#todo) | TODO comment |
 | [`while`](examples/c.md#while) | while loop |
@@ -233,6 +236,7 @@ example, `enum` and `struct` override C's typedef forms.
 | [`struct`](examples/cpp.md#struct) | struct definition (overrides C's typedef form) |
 | [`switch`](examples/cpp.md#switch) | switch statement |
 | [`td`](examples/cpp.md#td) | typedef declaration |
+| [`tfile`](examples/cpp.md#tfile) | create <source>_test.cpp beside the --source file with a GoogleTest per public fn/method (multi-file) |
 | [`tfn`](examples/cpp.md#tfn) | GoogleTest TEST calling a function (data-driven: tfn*@src.fns, public by default) |
 | [`tmeth`](examples/cpp.md#tmeth) | GoogleTest TEST calling a method (data-driven: tmeth*@src.Type.methods; statics via Type::, constructors construct) |
 | [`todo`](examples/cpp.md#todo) | TODO comment |
@@ -280,6 +284,7 @@ LSP ids: `javascript`, `javascriptreact` | default indent: 2 spaces
 | [`set`](examples/javascript.md#set) | setter backed by a private-by-convention field |
 | [`switch`](examples/javascript.md#switch) | switch statement |
 | [`test`](examples/javascript.md#test) | test case (jest/vitest style) |
+| [`tfile`](examples/javascript.md#tfile) | create <source>.test.js beside the --source file with a Jest test per exported fn/method (multi-file) |
 | [`tfn`](examples/javascript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
 | [`tmeth`](examples/javascript.md#tmeth) | Jest test calling a method (data-driven: tmeth*@src.Type.methods; statics via the class, the constructor constructs) |
 | [`todo`](examples/javascript.md#todo) | TODO comment |
@@ -332,6 +337,7 @@ TypeScript starts from the JavaScript pack. Several triggers such as `afn` and
 | [`set`](examples/typescript.md#set) | setter backed by a private-by-convention field |
 | [`switch`](examples/typescript.md#switch) | switch statement |
 | [`test`](examples/typescript.md#test) | test case (jest/vitest style) |
+| [`tfile`](examples/typescript.md#tfile) | create <source>.test.ts beside the --source file with a Jest test per exported fn/method (multi-file) |
 | [`tfn`](examples/typescript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
 | [`tmeth`](examples/typescript.md#tmeth) | Jest test calling a method (data-driven: tmeth*@src.Type.methods; statics via the class, the constructor constructs) |
 | [`todo`](examples/typescript.md#todo) | TODO comment |
@@ -380,6 +386,7 @@ id `go` | extensions: `go` | LSP ids: `go` | default indent: tab
 | [`struct`](examples/go.md#struct) | struct type definition |
 | [`switch`](examples/go.md#switch) | switch statement (cases at switch level, per gofmt) |
 | [`test`](examples/go.md#test) | test function (testing package) |
+| [`tfile`](examples/go.md#tfile) | create <source>_test.go beside the --source file with a testing.T test per exported fn/method (multi-file) |
 | [`tfn`](examples/go.md#tfn) | testing.T test calling a function (data-driven: tfn*@src.fns, exported by default) |
 | [`tmeth`](examples/go.md#tmeth) | testing.T test calling a method on a constructed value (data-driven: tmeth*@src.Type.methods) |
 | [`todo`](examples/go.md#todo) | TODO comment |

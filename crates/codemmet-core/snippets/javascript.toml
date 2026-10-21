@@ -374,3 +374,13 @@ test("${value.owner}.${value} works", () => {
 	expect(${value.owner}.${value}(${value.args})).toBe(${1:expected});
 });
 '''
+
+[snippets.tfile]
+description = "create <source>.test.js beside the --source file with a Jest test per exported fn/method (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/${src.stem}.test.js"
+on_exists = "create"
+on_create = 'import * as ${src.stem|camel} from "${src.module}";'
+primary = true
+expands = "tfn*@src.fns+tmeth*@src.methods"

@@ -892,6 +892,21 @@ fn adds() {
 
 A `#[test]` function with a glued name argument (`:adds`). Nesting a child with `>`, such as `aeq`, fills the body.
 
+### `tfile`
+
+Append a #[cfg(test)] module to the --source file with a test per public fn/method (multi-file).
+
+```sh
+codemmet scaffold --lang rust --source geometry.rs tfile --write
+```
+
+With the `geometry.rs` from [`tfn`](#tfn), this appends a `#[cfg(test)] mod tests { use super::*; … }` block to `geometry.rs` itself (`target = "source"`, `on_exists = "append"`), followed by
+the `tfn` tests for its public functions and the `tmeth` tests for its methods
+— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
+the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
+`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+
 ### `tfn`
 
 test calling a function (data-driven).

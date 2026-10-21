@@ -80,6 +80,10 @@ pub enum FileTarget {
     SelfFile,
     /// A sibling of the current file with this extension (e.g. `".cpp"`).
     Sibling(String),
+    /// The invocation's explicit **source** file (`--source`,
+    /// `:CodemmetSource`): where a test scaffold appends an inline test
+    /// module, for instance.
+    Source,
 }
 
 /// The renderable content of a multi-file piece (mirrors `body` vs `expands`).
@@ -1008,6 +1012,17 @@ fn compile_file_piece(
                 "file section `{label}`: unknown case transform `{transform}` in `${{{name}}}`"
             )));
         }
+        // `${src.key}` markers resolve from the `--source` file at scaffold
+        // time, not from a parameter; only the known keys are accepted.
+        if let Some(key) = base.strip_prefix("src.") {
+            if !matches!(key, "module" | "file" | "stem" | "dir" | "path") {
+                return Err(invalid(format!(
+                    "file section `{label}`: unknown source variable `${{{base}}}` \
+                     (expected src.module, src.file, src.stem, src.dir, or src.path)"
+                )));
+            }
+            continue;
+        }
         if !declared.contains(base) {
             return Err(invalid(format!(
                 "file section `{label}` references undeclared parameter `{base}`"
@@ -1035,12 +1050,14 @@ fn parse_target(
 ) -> Result<FileTarget, ConfigError> {
     if target == "self" {
         Ok(FileTarget::SelfFile)
+    } else if target == "source" {
+        Ok(FileTarget::Source)
     } else if let Some(ext) = target.strip_prefix('.').filter(|e| !e.is_empty()) {
         Ok(FileTarget::Sibling(format!(".{ext}")))
     } else {
         Err(invalid(format!(
             "file section `{label}` has invalid `target` {target:?} \
-             (expected `self` or a sibling extension like `.cpp`)"
+             (expected `self`, `source`, or a sibling extension like `.cpp`)"
         )))
     }
 }

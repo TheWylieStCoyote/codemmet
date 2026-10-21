@@ -775,6 +775,21 @@ typedef int name_t;
 
 Inherited unchanged from C. Declares a `typedef` alias for an existing type.
 
+### `tfile`
+
+Create <source>_test.cpp beside the --source file with a GoogleTest per public fn/method (multi-file).
+
+```sh
+codemmet scaffold --lang cpp --source geometry.cpp tfile --write
+```
+
+With the `geometry.cpp` from [`tfn`](#tfn), this creates `geometry_test.cpp` next to the source, starting with `#include "geometry.h"` and `#include <gtest/gtest.h>`, followed by
+the `tfn` tests for its public functions and the `tmeth` tests for its methods
+— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
+the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
+`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+
 ### `tfn`
 
 GoogleTest TEST calling a function (data-driven).

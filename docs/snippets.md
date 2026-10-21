@@ -753,9 +753,34 @@ codemmet scaffold --lang python "djfeature:blog" --write
 
 A section targets its file with a `path` template **or** a `target` — `"self"`
 (the current file) or a sibling by extension (`".cpp"`), for which the CLI needs
-`--from <FILE>`. Each new file may carry an `on_create` header (a `#pragma once`
-or import block added only on creation), and `on_exists` chooses `append` /
-`create` / `inject` when the target is already there. `inject` places the
+`--from <FILE>`, or `"source"` (the explicit `--source` file). Each new file may
+carry an `on_create` header (a `#pragma once` or import block added only on
+creation), and `on_exists` chooses `append` / `create` / `inject` when the
+target is already there.
+
+`path` templates and `on_create` headers may also use the **source
+variables** `${src.stem}`, `${src.dir}`, `${src.file}`, `${src.path}`, and
+`${src.module}` (with `|transform`), resolved from `--source`. That is how the
+builtin `tfile` scaffolds place a test file next to the file under test and
+write its import line, with the tests themselves coming from a data-driven
+`expands`:
+
+```toml
+[snippets.tfile.files.test]
+path      = "${src.dir}/test_${src.stem}.py"
+on_exists = "create"
+on_create = "from ${src.module} import *"
+primary   = true
+expands   = "tfn*@src.fns+tmeth*@src.methods"
+```
+
+```sh
+codemmet scaffold --lang python --source src/geometry.py tfile --write
+# create src/test_geometry.py
+```
+
+The Rust `tfile` instead uses `target = "source"` with `on_exists = "append"`
+to add an inline `#[cfg(test)] mod tests` to the source file itself. `inject` places the
 content *structurally* — into an existing class/struct body (tree-sitter),
 at the end of a C/C++ `public:` section, or into the class named by `into`:
 
@@ -773,7 +798,8 @@ tabstops, since these cannot cross files. `codemmet scaffold` prints a manifest
 (`--json`) or applies it (`--write`); in Neovim `:CodemmetScaffold` writes the
 supporting files and opens the primary as a live, interactive snippet. Every
 language ships builtins — module/package scaffolds, `itest` test files, Rust
-`mbin`, and C++ `mmethod`/`mns` (the full list is in the design doc). Full
+`mbin`, C++ `mmethod`/`mns`, and the `tfile` test scaffolds (the full list is
+in the design doc). Full
 details and the design are in
 [`MULTIFILE_SNIPPETS.md`](../MULTIFILE_SNIPPETS.md); the command reference is in
 the [CLI reference](cli.md#scaffold).

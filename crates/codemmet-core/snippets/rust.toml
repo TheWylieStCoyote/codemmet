@@ -521,3 +521,12 @@ fn ${value.owner|snake}_${value|snake}_works() {
 	assert_eq!(result, ${1:expected});
 }
 '''
+
+[snippets.tfile]
+description = "append a #[cfg(test)] module to the --source file with a test per public fn/method (multi-file)"
+
+[snippets.tfile.files.tests]
+target = "source"
+on_exists = "append"
+primary = true
+expands = "tmod>tfn*@src.fns+tmeth*@src.methods"
