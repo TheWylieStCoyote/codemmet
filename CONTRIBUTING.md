@@ -42,6 +42,20 @@ or the pieces individually with `just fmt`, `just lint`, `just test`. Specifical
   compiling (the tree-sitter-free path).
 - **cargo-deny** — advisories, licenses, and sources.
 
+The **CLI** is tested end to end in `crates/codemmet/tests/cli.rs`: every test
+spawns the built binary (`CARGO_BIN_EXE_codemmet`) with a scratch `--config`
+directory, so the user's own packs cannot leak in, and asserts on exit code,
+stdout, and stderr. The convention is one test per behavior, and every example
+command in `docs/cli.md` and `docs/testing.md` has a test asserting its
+documented output — when you change what a command prints, update both. The
+LSP has the same kind of suite in `crates/codemmet/tests/lsp.rs`, driving a
+real `codemmet lsp --stdio` process over JSON-RPC. Run either alone with
+
+```sh
+cargo test -p codemmet --all-features --test cli
+cargo test -p codemmet --all-features --test lsp
+```
+
 The Neovim plugin has **headless end-to-end tests** under `tests/nvim/` that
 drive the real plugin against a freshly built server (they are not part of
 `cargo test`; run them when you touch `lua/`, `plugin/`, or the LSP):

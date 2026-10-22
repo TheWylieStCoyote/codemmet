@@ -2065,3 +2065,154 @@ fn scaffold_all_tabstops_adds_a_snippet_twin_to_supporting_files() {
         "no twin without the flag"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Subcommands documented in docs/cli.md: every example there runs here.
+// ---------------------------------------------------------------------------
+
+/// Run a subcommand with `stdin_text` on standard input and a scratch
+/// `--config` so the user's own packs cannot leak in.
+fn run_with_stdin(name: &str, args: &[&str], stdin_text: &str) -> Output {
+    let dir = scratch_dir(name);
+    let mut child = bin()
+        .args(args)
+        .args(["--config", dir.to_str().expect("scratch path is UTF-8")])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("binary should spawn");
+    child
+        .stdin
+        .take()
+        .expect("stdin is piped")
+        .write_all(stdin_text.as_bytes())
+        .expect("stdin accepts the text");
+    child.wait_with_output().expect("binary should finish")
+}
+
+/// `wrap` (the docs/cli.md example): the selection lands at the abbreviation's
+/// final cursor, re-indented; `--tabstops keep` keeps the wrapper's stops.
+#[test]
+fn wrap_inserts_the_selection_at_the_final_cursor() {
+    let out = run_with_stdin(
+        "wrap-keep",
+        &[
+            "wrap",
+            "--lang",
+            "rust",
+            "--abbr",
+            "fori10",
+            "--tabstops",
+            "keep",
+        ],
+        "let x = compute();\nprintln!(\"{x}\");",
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "for ${1:i} in 0..10 {\n    let x = compute();\n    println!(\"{x}\");$0\n}\n"
+    );
+    let out = run_with_stdin(
+        "wrap-strip",
+        &["wrap", "--lang", "rust", "--abbr", "fori10"],
+        "let x = compute();\n",
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "for i in 0..10 {\n    let x = compute();\n}\n"
+    );
+    // A bad abbreviation is a parse error (exit 1), not a panic.
+    let out = run_with_stdin(
+        "wrap-bad",
+        &["wrap", "--lang", "rust", "--abbr", "fori10>"],
+        "x",
+    );
+    assert_eq!(code(&out), 1, "stderr: {}", stderr(&out));
+}
+
+/// `render` from stdin (`-`), keep mode (the docs/cli.md example): tabstops are
+/// renumbered across lines and exactly one final `$0` survives.
+#[test]
+fn render_stdin_keep_mode_renumbers_across_lines() {
+    let out = run_with_stdin(
+        "render-keep",
+        &["render", "--lang", "rust", "--tabstops", "keep", "-"],
+        "fn:main\npr\n",
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "fn main($1) {\n    $2\n}\nprintln!(\"$0\");\n"
+    );
+    // Strip mode (the default) is plain, right-trimmed code.
+    let out = run_with_stdin(
+        "render-strip",
+        &["render", "--lang", "rust", "-"],
+        "fn:main\npr\n",
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "fn main() {\n\n}\nprintln!(\"\");\n");
+}
+
+/// Bare `codemmet FILE.codemmet` is `render FILE` (the inner extension picks
+/// the language), and a token that is neither a subcommand nor such a file is
+/// a clear error.
+#[test]
+fn bare_codemmet_file_renders_it() {
+    let dir = scratch_dir("bare-file");
+    let file = dir.join("main.rs.codemmet");
+    std::fs::write(&file, "fn:main>pr\n").expect("write");
+    let out = bin()
+        .arg(&file)
+        .args(["--config", dir.to_str().expect("UTF-8")])
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "fn main() {\n    println!(\"\");\n}\n");
+    let out = run("bare-bogus", &["not-a-subcommand"]);
+    assert_ne!(code(&out), 0);
+    assert!(
+        stderr(&out).contains("neither a subcommand nor a `.codemmet` file"),
+        "stderr: {}",
+        stderr(&out)
+    );
+}
+
+/// `list` prints `trigger<TAB>description` sorted; `--json` the same as
+/// objects. The data-driven test triggers are listed with their defaults.
+#[test]
+fn list_prints_sorted_triggers_in_text_and_json() {
+    let out = run("list-text", &["list", "--lang", "python"]);
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let triggers: Vec<&str> = text
+        .lines()
+        .map(|l| l.split('\t').next().unwrap_or("").trim())
+        .collect();
+    let mut sorted = triggers.clone();
+    sorted.sort_unstable();
+    assert_eq!(triggers, sorted, "sorted by trigger");
+    assert!(
+        triggers.contains(&"tfn") && triggers.contains(&"tfile"),
+        "{text}"
+    );
+    let out = run("list-json", &["list", "--lang", "python", "--json"]);
+    assert_eq!(code(&out), 0);
+    let items: serde_json::Value = serde_json::from_str(stdout(&out).trim()).expect("JSON");
+    let tfn = items
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|i| i["trigger"] == "tfn")
+        .expect("tfn listed");
+    assert!(
+        tfn["description"]
+            .as_str()
+            .is_some_and(|d| d.contains("pytest")),
+        "{tfn}"
+    );
+    let out = run("list-unknown", &["list", "--lang", "klingon"]);
+    assert_eq!(code(&out), 3);
+}
