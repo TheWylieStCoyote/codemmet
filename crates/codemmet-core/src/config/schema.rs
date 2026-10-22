@@ -117,6 +117,13 @@ pub struct FileDef {
     /// import block).
     #[serde(default)]
     pub on_create: Option<String>,
+    /// The trigger of a container the content belongs inside (`"tmod"`), for
+    /// an `expands` piece: injected into an existing container named by
+    /// `into` when the file has one, the content is otherwise delivered
+    /// wrapped — `<wrap>>(<expands>)` — whether the file is created or the
+    /// content appended.
+    #[serde(default)]
+    pub wrap: Option<String>,
     /// This file receives the tabstops and final cursor. At most one per
     /// snippet; the others insert plain text (tabstops cannot cross files).
     #[serde(default)]

@@ -523,10 +523,14 @@ fn ${value.owner|snake}_${value|snake}_works() {
 '''
 
 [snippets.tfile]
-description = "append a #[cfg(test)] module to the --source file with a test per public fn/method (multi-file)"
+description = "add a test per public fn/method to the --source file's #[cfg(test)] mod tests, creating the module if needed (multi-file)"
 
+# The tests belong inside `mod tests`: injected into an existing one, else
+# appended inside a fresh `tmod`.
 [snippets.tfile.files.tests]
 target = "source"
-on_exists = "append"
+on_exists = "inject"
+into = "tests"
+wrap = "tmod"
 primary = true
-expands = "tmod>tfn*@src.fns+tmeth*@src.methods"
+expands = "tfn*@src.fns+tmeth*@src.methods"

@@ -8,6 +8,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Rust `tfile` merges into an existing `mod tests`.** Multi-file sections
+  gain `wrap = "<trigger>"`: an `expands` piece whose content belongs inside
+  a container is injected into the existing one named by `into`, and
+  otherwise delivered inside a fresh wrapper (`<wrap>>(<expands>)`) when the
+  file is created or appended to. The Rust `tfile` uses it (`into =
+  "tests"`, `wrap = "tmod"`), so running it twice no longer stacks a second
+  module. The injector now targets a Rust `mod` by name, and a named `into`
+  is strict: no container of that name means append, never a different
+  container.
 - **Live tabstops in every scaffold file (opt-in).** `codemmet scaffold
   --all-tabstops --tabstops keep --json` adds a `snippet` field (the
   tabstop-kept twin) to each non-primary manifest entry; `content` stays

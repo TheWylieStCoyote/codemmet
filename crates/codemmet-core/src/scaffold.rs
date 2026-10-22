@@ -73,6 +73,14 @@ pub struct FileOutput {
     /// For a non-primary piece under [`ScaffoldOptions::all_tabstops`]: the
     /// same content rendered with tabstops kept. `None` otherwise.
     pub snippet: Option<String>,
+    /// For a section with `wrap`: the content inside its container
+    /// (`tmod>(…)`), to write whenever the content is not injected into an
+    /// existing container (the file is created, or appended to). Rendered
+    /// like `content`; `wrapped_snippet` like `snippet`.
+    pub wrapped: Option<String>,
+    /// The tabstop-kept twin of [`wrapped`](Self::wrapped), when `snippet`
+    /// exists.
+    pub wrapped_snippet: Option<String>,
 }
 
 /// Why a multi-file expansion failed.
@@ -183,6 +191,19 @@ pub fn scaffold(
         } else {
             None
         };
+        let (wrapped, wrapped_snippet) = match &piece.wrapped {
+            Some(abbr) => {
+                let wrapped =
+                    render_expands(engine, language, piece, abbr, &values, ctx, piece_mode)?.0;
+                let twin = if live_twin.is_some() {
+                    Some(render_expands(engine, language, piece, abbr, &values, ctx, mode)?.0)
+                } else {
+                    None
+                };
+                (Some(wrapped), twin)
+            }
+            None => (None, None),
+        };
         // The snippet's own `requires` ride with the primary file; each
         // piece adds what its rendered content pulled in (first-appearance
         // dedup, matching `Expansion.requires`).
@@ -208,6 +229,8 @@ pub fn scaffold(
             requires,
             primary: is_primary,
             snippet: live_twin,
+            wrapped,
+            wrapped_snippet,
         });
     }
     Ok(out)
@@ -350,17 +373,30 @@ fn render_piece(
             Ok((content, Vec::new()))
         }
         PieceContent::Expands(abbr) => {
-            let resolved = subst(abbr, values, &ctx.vars);
-            engine
-                .expand(&resolved, language, ctx, mode)
-                .map(|e| (e.body, e.requires))
-                .map_err(|source| ScaffoldError::Expand {
-                    label: piece.label.clone(),
-                    abbr: resolved,
-                    source: Box::new(source),
-                })
+            render_expands(engine, language, piece, abbr, values, ctx, mode)
         }
     }
+}
+
+/// Expand an `expands` abbreviation (or its `wrap`ped form) for `piece`.
+fn render_expands(
+    engine: &Engine,
+    language: &str,
+    piece: &CompiledFilePiece,
+    abbr: &str,
+    values: &Values,
+    ctx: &ExpansionContext,
+    mode: TabstopMode,
+) -> Result<(String, Vec<String>), ScaffoldError> {
+    let resolved = subst(abbr, values, &ctx.vars);
+    engine
+        .expand(&resolved, language, ctx, mode)
+        .map(|e| (e.body, e.requires))
+        .map_err(|source| ScaffoldError::Expand {
+            label: piece.label.clone(),
+            abbr: resolved,
+            source: Box::new(source),
+        })
 }
 
 /// Render a literal body template (no params left) through the normal pipeline,
@@ -432,6 +468,7 @@ mod tests {
             on_exists: OnExists::default(),
             into: None,
             on_create: None,
+            wrapped: None,
             primary,
         }
     }
@@ -540,6 +577,52 @@ mod tests {
                 assert_eq!(twin, "mod helper;$0");
             }
         }
+    }
+
+    /// A `wrap`ped piece renders both the bare content and the content inside
+    /// its container; the builtin Rust `tfile` is the shipping example.
+    #[test]
+    fn wrapped_pieces_render_content_and_wrapped_form() {
+        let engine = Engine::with_registry(
+            crate::lang::registry::Registry::with_builtins().expect("builtins"),
+        );
+        let mut ctx = ExpansionContext::plain(String::new(), crate::context::IndentUnit::Spaces(4));
+        let mut area = crate::context::Item::new("area");
+        area.members.insert("vis".to_owned(), "public".to_owned());
+        ctx.collections.insert(
+            "src.fns".to_owned(),
+            crate::context::Collection { items: vec![area] },
+        );
+        ctx.collections.insert(
+            "src.methods".to_owned(),
+            crate::context::Collection { items: Vec::new() },
+        );
+        let src = Path::new("/tmp/proj/src/geometry.rs");
+        let opts = ScaffoldOptions {
+            root: Path::new("/tmp/proj"),
+            current_file: None,
+            source_file: Some(src),
+            all_tabstops: false,
+        };
+        let out =
+            scaffold(&engine, "rust", "tfile", &ctx, &opts, TabstopMode::Strip).expect("tfile");
+        let piece = &out[0];
+        assert_eq!(piece.path, src);
+        assert_eq!(piece.into.as_deref(), Some("tests"));
+        assert!(
+            piece.content.starts_with("#[test]\nfn area_works()"),
+            "{}",
+            piece.content
+        );
+        let wrapped = piece.wrapped.as_deref().expect("wrapped form");
+        assert!(
+            wrapped.starts_with("#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]"),
+            "{wrapped}"
+        );
+        assert!(
+            piece.wrapped_snippet.is_none(),
+            "no twin without all_tabstops"
+        );
     }
 
     #[test]

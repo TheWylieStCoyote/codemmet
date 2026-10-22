@@ -217,8 +217,9 @@ def test_point_from_tuple():
 Add `--write` to create the file. The path and the import come from the
 **source variables** — `${src.dir}/test_${src.stem}.py` and `from
 ${src.module} import *` — so the same trigger works for any file. Rust's
-`tfile` appends an inline `#[cfg(test)] mod tests { use super::*; … }` to the
-source file itself instead of creating a sibling:
+`tfile` adds the tests to the source file itself instead of creating a
+sibling: inside the existing `#[cfg(test)] mod tests` when there is one, or in
+a new one appended after the code:
 
 ```sh
 codemmet scaffold --lang rust --source src/geometry.rs tfile
@@ -290,14 +291,15 @@ first `expected`. Later, inside that module, `tfn*@src.fns?vis=public?!tested`
 adds tests for the public functions that still have none: `tested` is set on
 every item a name in the test region (from `#[cfg(test)]` on) mentions.
 
-`:CodemmetScaffold tfile` does the same without typing the
-abbreviation (it is what Rust's `tfile` expands to; with no source set, the
-scaffold treats the current file as its own), and the code-action menu
-offers **Add N missing tests to geometry.rs**: in a file without a test module
-it appends one; in a file that already ends with `mod tests { … }` it inserts
-the new tests inside the module, indented, before its closing brace. Only
-names used inside the test region count as tested there, so a function that
-the rest of the code calls is still "missing" until a test mentions it.
+`:CodemmetScaffold tfile` does the same without typing the abbreviation,
+and merges: in a file that already has a `mod tests` it inserts the tests
+inside it, and only a file without one gets a new module (with no source set,
+the scaffold treats the current file as its own). The code-action menu offers
+**Add N missing tests to geometry.rs** with the same placement, but only for
+the functions no test mentions yet: names used inside the test region count
+as tested there, so a function that the rest of the code calls is still
+"missing" until a test mentions it. `tfile` and the typed abbreviation never
+look at existing tests — they generate from the source alone.
 
 The choice is kept per buffer (`vim.b.codemmet_source`) and re-sent if the
 server restarts. The plugin launches `codemmet lsp` from your `PATH`, so the

@@ -188,9 +188,9 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
 /// action, and prepare the content (fold in `on_create` on create; compute the
 /// structural insertion on inject).
 fn plan(out: &FileOutput, lang: &str, indent: &str) -> Result<Planned, String> {
-    let (action, content) = plan_text(out, lang, indent, &out.content)?;
+    let (action, content) = plan_text(out, lang, indent, &out.content, out.wrapped.as_deref())?;
     let snippet = match &out.snippet {
-        Some(text) => Some(plan_text(out, lang, indent, text)?.1),
+        Some(text) => Some(plan_text(out, lang, indent, text, out.wrapped_snippet.as_deref())?.1),
         None => None,
     };
 
@@ -233,13 +233,17 @@ fn plan(out: &FileOutput, lang: &str, indent: &str) -> Result<Planned, String> {
 
 /// The action for `out` against the filesystem, and `text` (its content, or
 /// its tabstop-kept twin) prepared for it: the `on_create` header folded in
-/// on create, the structural insertion computed on inject.
+/// on create, the structural insertion computed on inject. `wrapped` is the
+/// same text inside its `wrap` container, used whenever the content is not
+/// injected into an existing one.
 fn plan_text(
     out: &FileOutput,
     lang: &str,
     indent: &str,
     text: &str,
+    wrapped: Option<&str>,
 ) -> Result<(Action, String), String> {
+    let standalone = wrapped.unwrap_or(text);
     if out.path.exists() {
         match out.on_exists {
             OnExists::Create => Err(format!(
@@ -248,13 +252,13 @@ fn plan_text(
                 out.label,
                 out.path.display()
             )),
-            OnExists::Append => Ok((Action::Append, text.to_owned())),
-            OnExists::Inject => plan_inject(out, lang, indent, text),
+            OnExists::Append => Ok((Action::Append, standalone.to_owned())),
+            OnExists::Inject => plan_inject(out, lang, indent, text, standalone),
         }
     } else {
         let content = out.on_create.as_ref().map_or_else(
-            || text.to_owned(),
-            |prefix| format!("{}\n\n{text}", prefix.trim_end_matches('\n')),
+            || standalone.to_owned(),
+            |prefix| format!("{}\n\n{standalone}", prefix.trim_end_matches('\n')),
         );
         Ok((Action::Create, content))
     }
@@ -311,17 +315,28 @@ fn plan_inject(
     lang: &str,
     indent: &str,
     text: &str,
+    standalone: &str,
 ) -> Result<(Action, String), String> {
     let existing = std::fs::read_to_string(&out.path)
         .map_err(|err| format!("cannot read {}: {err}", out.path.display()))?;
     if let Some(inj) = codemmet_tsctx::inject(lang, &existing, text, indent, out.into.as_deref()) {
         Ok((Action::Inject { offset: inj.offset }, inj.text))
     } else {
-        eprintln!(
-            "note: no container found in {}; appending instead",
-            out.path.display()
-        );
-        Ok((Action::Append, text.to_owned()))
+        match &out.into {
+            Some(name) if standalone != text => eprintln!(
+                "note: no `{name}` in {}; appending a new one",
+                out.path.display()
+            ),
+            Some(name) => eprintln!(
+                "note: no `{name}` in {}; appending instead",
+                out.path.display()
+            ),
+            None => eprintln!(
+                "note: no container found in {}; appending instead",
+                out.path.display()
+            ),
+        }
+        Ok((Action::Append, standalone.to_owned()))
     }
 }
 
@@ -333,13 +348,14 @@ fn plan_inject(
     out: &FileOutput,
     _lang: &str,
     _indent: &str,
-    text: &str,
+    _text: &str,
+    standalone: &str,
 ) -> Result<(Action, String), String> {
     eprintln!(
         "note: `{}` exists; appending (`inject` needs the tree-sitter build)",
         out.path.display()
     );
-    Ok((Action::Append, text.to_owned()))
+    Ok((Action::Append, standalone.to_owned()))
 }
 
 /// Print the manifest as a JSON array.

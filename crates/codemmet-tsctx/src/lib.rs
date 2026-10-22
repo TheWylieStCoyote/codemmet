@@ -140,6 +140,9 @@ struct LangSpec {
     block_kinds: &'static [&'static str],
     /// Node kinds whose named children are statements/items.
     container_kinds: &'static [&'static str],
+    /// Node kinds the injector may target besides type bodies (a Rust
+    /// `mod_item`, so a scaffold can add tests to an existing `mod tests`).
+    inject_kinds: &'static [&'static str],
 }
 
 impl LangSpec {
@@ -331,7 +334,9 @@ fn choose_container<'t>(
     let mut containers: Vec<Node<'t>> = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
-        if spec.scope_for(node.kind()) == Some(Scope::TypeBody) {
+        if spec.scope_for(node.kind()) == Some(Scope::TypeBody)
+            || spec.inject_kinds.contains(&node.kind())
+        {
             containers.push(node);
             continue;
         }
@@ -341,15 +346,21 @@ fn choose_container<'t>(
         }
     }
     containers.sort_by_key(Node::start_byte);
-    if let Some(name) = into
-        && let Some(hit) = containers
-            .iter()
+    // A named target is strict: when `into` names a container the file does
+    // not have, there is nothing to inject into (the caller falls back), rather
+    // than landing in whichever container happens to be last.
+    match into {
+        Some(name) => containers
+            .into_iter()
             .rev()
-            .find(|c| container_name(**c, text) == Some(name))
-    {
-        return Some(*hit);
+            .find(|c| container_name(*c, text) == Some(name)),
+        // Unnamed: the last type body — never a module, whose members are
+        // items a scaffold would not blindly add to.
+        None => containers
+            .into_iter()
+            .rev()
+            .find(|c| spec.scope_for(c.kind()) == Some(Scope::TypeBody)),
     }
-    containers.last().copied()
 }
 
 /// A container's declared name (`name` field, else `type` for a Rust `impl`).
@@ -424,6 +435,7 @@ static RUST: LangSpec = LangSpec {
     body_fields: BODY_FIELDS,
     block_kinds: BLOCK_KINDS,
     container_kinds: CONTAINER_KINDS,
+    inject_kinds: &["mod_item"],
 };
 
 #[cfg(feature = "lang-python")]
@@ -442,6 +454,7 @@ static PYTHON: LangSpec = LangSpec {
     body_fields: BODY_FIELDS,
     block_kinds: BLOCK_KINDS,
     container_kinds: CONTAINER_KINDS,
+    inject_kinds: &[],
 };
 
 /// C scopes are also the base of the C++ table below.
@@ -463,6 +476,7 @@ static C: LangSpec = LangSpec {
     body_fields: BODY_FIELDS,
     block_kinds: BLOCK_KINDS,
     container_kinds: CONTAINER_KINDS,
+    inject_kinds: &[],
 };
 
 /// C++ = every C scope, plus classes/lambdas/try. `namespace_definition`
@@ -491,6 +505,7 @@ static CPP: LangSpec = LangSpec {
     body_fields: BODY_FIELDS,
     block_kinds: BLOCK_KINDS,
     container_kinds: CONTAINER_KINDS,
+    inject_kinds: &[],
 };
 
 /// JavaScript scopes are also the base of the TypeScript table below.
@@ -521,6 +536,7 @@ static JAVASCRIPT: LangSpec = LangSpec {
     body_fields: BODY_FIELDS,
     block_kinds: BLOCK_KINDS,
     container_kinds: CONTAINER_KINDS,
+    inject_kinds: &[],
 };
 
 /// TypeScript = every JavaScript scope, plus interfaces and enums. The
@@ -553,6 +569,7 @@ static TYPESCRIPT: LangSpec = LangSpec {
     body_fields: BODY_FIELDS,
     block_kinds: BLOCK_KINDS,
     container_kinds: CONTAINER_KINDS,
+    inject_kinds: &[],
 };
 
 #[cfg(feature = "lang-go")]
@@ -578,6 +595,7 @@ static GO: LangSpec = LangSpec {
     body_fields: BODY_FIELDS,
     block_kinds: BLOCK_KINDS,
     container_kinds: CONTAINER_KINDS,
+    inject_kinds: &[],
 };
 
 /// One end of a wrap selection, resolved against the tree.
@@ -1090,6 +1108,29 @@ mod tests {
         let into_a = injected_into("cpp", src, "int z();", Some("A")).expect("A resolves");
         assert!(into_a.contains("int a();\n    int z();"), "{into_a}");
         assert!(into_a.contains("int b();\n};"), "B untouched: {into_a}");
+        // A name the file does not have is strict: nothing to inject into.
+        assert_eq!(injected_into("cpp", src, "int z();", Some("C")), None);
+    }
+
+    /// A Rust `mod` is an injection target when named (`into = "tests"`): a
+    /// scaffold adds tests to an existing `mod tests`. Unnamed injection still
+    /// takes the last type body, never a module.
+    #[cfg(feature = "lang-rust")]
+    #[test]
+    fn inject_into_a_named_rust_module() {
+        let src = "pub fn area() {}\nimpl Point {\n    fn len(&self) {}\n}\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn area_works() {}\n}\n";
+        let out = injected_into("rust", src, "#[test]\nfn len_works() {}", Some("tests"))
+            .expect("mod tests resolves");
+        assert!(
+            out.ends_with("    fn area_works() {}\n    #[test]\n    fn len_works() {}\n}\n"),
+            "{out}"
+        );
+        assert_eq!(injected_into("rust", src, "fn x() {}", Some("other")), None);
+        let unnamed = injected("rust", src, "fn scale(&self) {}").expect("impl resolves");
+        assert!(
+            unnamed.contains("fn len(&self) {}\n    fn scale(&self) {}\n}"),
+            "{unnamed}"
+        );
     }
 
     /// Run `validate_wrap` over a fixture with `«` and `»` selection

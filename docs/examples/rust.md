@@ -894,15 +894,18 @@ A `#[test]` function with a glued name argument (`:adds`). Nesting a child with 
 
 ### `tfile`
 
-Append a #[cfg(test)] module to the --source file with a test per public fn/method (multi-file).
+Add a test per public fn/method to the --source file's #[cfg(test)] mod tests, creating the module if needed (multi-file).
 
 ```sh
 codemmet scaffold --lang rust --source geometry.rs tfile --write
 ```
 
-With the `geometry.rs` from [`tfn`](#tfn), this appends a `#[cfg(test)] mod tests { use super::*; … }` block to `geometry.rs` itself (`target = "source"`, `on_exists = "append"`), followed by
-the `tfn` tests for its public functions and the `tmeth` tests for its methods
-— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+With the `geometry.rs` from [`tfn`](#tfn), this adds the `tfn` tests for its
+public functions and the `tmeth` tests for its methods to `geometry.rs` itself
+(`target = "source"`): **inside the existing `mod tests`** when the file has
+one (`on_exists = "inject"`, `into = "tests"`), otherwise inside a new
+`#[cfg(test)] mod tests { use super::*; … }` appended after the code
+(`wrap = "tmod"`). Run without
 `--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
 the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
 `on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.

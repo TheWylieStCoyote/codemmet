@@ -294,6 +294,12 @@ depend on earlier ones.
 
 ## Refinements made while building
 
+- **`tfile` merges into an existing `mod tests`** (Rust): multi-file pieces
+  gain `wrap`; the injector targets a named `mod_item`; a named `into` no
+  longer falls back to the last type body. The scaffold and the "add missing
+  tests" code action now place tests identically; only the action filters by
+  `tested`.
+
 - **`src.methods`** (every method, flat, with `owner`) exists beside the
   per-type collections; it fell out of the accumulator for free and makes
   "one test per method in the file" a single repeat.

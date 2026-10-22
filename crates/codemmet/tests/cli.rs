@@ -2282,3 +2282,62 @@ fn unity_doctest_and_testify_tfiles() {
         "package geometry\n\nimport \"testing\"\nimport \"github.com/stretchr/testify/assert\"\n\nfunc TestArea(t *testing.T) {\n\tgot := Area(w, h)\n\tassert.Equal(t, want, got)\n}"
     );
 }
+
+/// The Rust `tfile` adds its tests to an existing `mod tests` (an `inject`
+/// into the module named by `into`), and only creates the module when the
+/// file has none — never injecting into some other container like an impl.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn rust_tfile_merges_into_an_existing_test_module() {
+    let dir = scratch_dir("tfile-merge");
+    let with_mod = dir.join("with_mod.rs");
+    std::fs::write(
+        &with_mod,
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\npub fn perimeter(w: f64, h: f64) -> f64 { 2.0 * (w + h) }\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn area_works() {\n        assert_eq!(area(2.0, 3.0), 6.0);\n    }\n}\n",
+    )
+    .expect("write");
+    let impl_only = dir.join("impl_only.rs");
+    std::fs::write(
+        &impl_only,
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\npub struct P;\nimpl P {\n    pub fn len(&self) -> f64 { 0.0 }\n}\n",
+    )
+    .expect("write");
+    let manifest = |src: &std::path::Path| {
+        let out = bin()
+            .args(["scaffold", "--lang", "rust", "--json", "--root"])
+            .arg(&dir)
+            .arg("--source")
+            .arg(src)
+            .arg("tfile")
+            .arg("--config")
+            .arg(&dir)
+            .output()
+            .expect("binary should run");
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        serde_json::from_str::<serde_json::Value>(stdout(&out).trim()).expect("JSON")
+    };
+    let entry = &manifest(&with_mod)[0];
+    assert_eq!(entry["action"], "inject");
+    let content = entry["content"].as_str().expect("content");
+    assert!(
+        content.contains("\n    #[test]\n    fn perimeter_works() {"),
+        "{content}"
+    );
+    assert!(
+        !content.contains("mod tests"),
+        "no second module: {content}"
+    );
+    // The insertion point is before the module's closing brace.
+    let offset = usize::try_from(entry["offset"].as_u64().expect("offset")).expect("fits");
+    let text = std::fs::read_to_string(&with_mod).expect("read");
+    assert_eq!(text[offset..].trim(), "}", "offset: {offset}");
+
+    let entry = &manifest(&impl_only)[0];
+    assert_eq!(entry["action"], "append", "{entry}");
+    let content = entry["content"].as_str().expect("content");
+    assert!(
+        content.starts_with("#[cfg(test)]\nmod tests {"),
+        "{content}"
+    );
+    assert!(content.contains("fn p_len_works()"), "{content}");
+}

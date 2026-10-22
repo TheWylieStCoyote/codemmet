@@ -67,6 +67,10 @@ pub struct CompiledFilePiece {
     pub into: Option<String>,
     /// Text prepended only when the target file is created.
     pub on_create: Option<String>,
+    /// The content wrapped in its container trigger (`tmod>(…)`), when the
+    /// section declares `wrap`: what is written whenever the content is not
+    /// injected into an existing container.
+    pub wrapped: Option<String>,
     /// Whether this piece receives the tabstops/final cursor.
     pub primary: bool,
 }
@@ -310,18 +314,22 @@ impl SnippetSet {
                 let PieceContent::Expands(expands) = &piece.content else {
                     continue;
                 };
-                // Substitute a safe identifier for every `${name}` so the
-                // fragment parses; the concrete values sit in argument slots and
-                // do not affect which *triggers* it references.
-                let text = substitute_markers(&substitute_child_slot(expands), |_| "x".to_owned());
-                let ast = crate::abbr::parse(&text).map_err(|err| {
-                    invalid(format!(
-                        "file `{}` expands `{expands}` does not parse: {err}",
-                        piece.label
-                    ))
-                })?;
-                let mut refs: BTreeSet<&str> = BTreeSet::new();
-                collect_referenced_triggers(self, &ast.0, &mut refs, &invalid)?;
+                // The `wrap`ped form references the wrapper trigger too.
+                for expands in std::iter::once(expands).chain(piece.wrapped.as_ref()) {
+                    // Substitute a safe identifier for every `${name}` so the
+                    // fragment parses; the concrete values sit in argument
+                    // slots and do not affect which *triggers* it references.
+                    let text =
+                        substitute_markers(&substitute_child_slot(expands), |_| "x".to_owned());
+                    let ast = crate::abbr::parse(&text).map_err(|err| {
+                        invalid(format!(
+                            "file `{}` expands `{expands}` does not parse: {err}",
+                            piece.label
+                        ))
+                    })?;
+                    let mut refs: BTreeSet<&str> = BTreeSet::new();
+                    collect_referenced_triggers(self, &ast.0, &mut refs, &invalid)?;
+                }
             }
         }
         Ok(())
@@ -1031,6 +1039,16 @@ fn compile_file_piece(
         referenced.insert(base.to_owned());
     }
 
+    let wrapped = match (&file.wrap, &file.expands) {
+        (None, _) => None,
+        (Some(_), None) => {
+            return Err(invalid(format!(
+                "file section `{label}`: `wrap` needs an `expands` (a body cannot be wrapped)"
+            )));
+        }
+        (Some(wrap), Some(expands)) => Some(format!("{wrap}>({expands})")),
+    };
+
     Ok(CompiledFilePiece {
         label: label.to_owned(),
         target,
@@ -1038,6 +1056,7 @@ fn compile_file_piece(
         on_exists: file.on_exists,
         into: file.into.clone(),
         on_create: file.on_create.clone(),
+        wrapped,
         primary: file.primary,
     })
 }
@@ -1853,6 +1872,55 @@ mod tests {
             &composite_pack("[snippets.mf.files.a]\npath = \"a.rs\"\nexpands = \"foo+foo\"\n"),
         );
         assert!(set.get("mf").and_then(|s| s.multifile.as_ref()).is_some());
+    }
+
+    /// `wrap` names the container trigger an `expands` piece belongs inside;
+    /// it is validated like the expands (unknown trigger is an error) and
+    /// cannot wrap a `body`.
+    #[test]
+    fn multifile_wrap_compiles_to_a_wrapped_abbreviation_and_is_validated() {
+        let set = compile_one(
+            "user",
+            &composite_pack(concat!(
+                "[snippets.mf.files.a]\n",
+                "path = \"a.rs\"\n",
+                "wrap = \"foo\"\n",
+                "expands = \"foo+foo\"\n",
+            )),
+        );
+        let piece = &set
+            .get("mf")
+            .and_then(|s| s.multifile.as_ref())
+            .expect("mf")
+            .files[0];
+        assert_eq!(piece.wrapped.as_deref(), Some("foo>(foo+foo)"));
+
+        let err = compile_err(
+            "user",
+            &composite_pack(concat!(
+                "[snippets.mf.files.a]\n",
+                "path = \"a.rs\"\n",
+                "wrap = \"nope\"\n",
+                "expands = \"foo\"\n",
+            )),
+        );
+        assert!(
+            matches!(err, ConfigError::Invalid { ref message, .. } if message == "references unknown trigger `nope`"),
+            "{err:?}"
+        );
+        let err = compile_err(
+            "user",
+            &composite_pack(concat!(
+                "[snippets.mf.files.a]\n",
+                "path = \"a.rs\"\n",
+                "wrap = \"foo\"\n",
+                "body = \"x\"\n",
+            )),
+        );
+        assert!(
+            matches!(err, ConfigError::Invalid { ref message, .. } if message.contains("`wrap` needs an `expands`")),
+            "{err:?}"
+        );
     }
 
     #[test]

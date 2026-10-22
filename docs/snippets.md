@@ -829,10 +829,33 @@ codemmet scaffold --lang python --source src/geometry.py tfile --write
 # create src/test_geometry.py
 ```
 
-The Rust `tfile` instead uses `target = "source"` with `on_exists = "append"`
-to add an inline `#[cfg(test)] mod tests` to the source file itself. `inject` places the
-content *structurally* — into an existing class/struct body (tree-sitter),
-at the end of a C/C++ `public:` section, or into the class named by `into`:
+The Rust `tfile` instead uses `target = "source"` to add the tests to the
+source file itself. `inject` places the content *structurally* — into an
+existing class/struct body (tree-sitter), at the end of a C/C++ `public:`
+section, or into the container named by `into` (a class, a struct, an `impl`,
+or a Rust `mod`). A named `into` is strict: when the file has no container of
+that name, the content is appended instead — never injected into whatever
+container happens to be last.
+
+A piece whose content *belongs inside* a container declares the container's
+trigger as `wrap`. Injected into an existing container, the content goes in
+bare; otherwise — the file is created, or has no such container — it is
+delivered inside a fresh one, as `<wrap>>(<expands>)`. This is how the Rust
+`tfile` adds tests to an existing `mod tests` and only creates the module when
+there is none:
+
+```toml
+[snippets.tfile.files.tests]
+target    = "source"
+on_exists = "inject"
+into      = "tests"                # the existing `mod tests`, when there is one
+wrap      = "tmod"                 # else a new `#[cfg(test)] mod tests { … }`
+primary   = true
+expands   = "tfn*@src.fns+tmeth*@src.methods"
+```
+
+`wrap` needs an `expands` (a literal body has no trigger to wrap it in), and
+the wrapper trigger must exist. The C++ `mmethod` injects by name:
 
 ```toml
 [snippets.mmethod.files.decl]
