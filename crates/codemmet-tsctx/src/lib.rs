@@ -964,13 +964,16 @@ impl ContextProvider for TreeSitterProvider {
         let text = doc.text.as_str();
         let offset = clamp_offset(text, offset);
         let indent = indent_unit_for(doc);
-        codegen::dispatch_fills(
+        let (root, unit) = (tree.root_node(), indent.as_str());
+        let mut out = codegen::dispatch_fills(&doc.language, root, text, offset, &unit);
+        out.extend(codegen::implement_fills(
             &doc.language,
-            tree.root_node(),
+            root,
             text,
             offset,
-            &indent.as_str(),
-        )
+            &unit,
+        ));
+        out
     }
 
     fn import_scan(&mut self, doc: &DocSnapshot) -> Option<ImportScan> {
@@ -2227,6 +2230,102 @@ fn f() { §
         assert_eq!(
             applied("python", fixture, "Fill if chain from Color"),
             "class Color(Enum):\n    RED = 1\n    GREEN = 2\n\ndef f(c):\n    if c == Color.RED:\n        pass\n    elif c == Color.GREEN:\n        pass\n    return 1\n"
+        );
+    }
+
+    // ---- Implement-missing-methods code actions ------------------------
+
+    #[cfg(feature = "lang-rust")]
+    #[test]
+    fn implement_trait_in_rust() {
+        let trait_def = "pub trait Shape {\n    fn area(&self) -> f64;\n    fn scale(&mut self, f: f64);\n    fn name(&self) -> String { String::new() }\n}\nstruct Sq;\n";
+        // Empty impl: every required method (the provided one is not).
+        let fixture = format!("{trait_def}impl Shape for Sq {{§}}\n");
+        assert_eq!(
+            applied("rust", &fixture, "Implement missing methods of Shape"),
+            format!(
+                "{trait_def}impl Shape for Sq {{\n    fn area(&self) -> f64 {{\n        todo!()\n    }}\n\n    fn scale(&mut self, f: f64) {{\n        todo!()\n    }}\n}}\n"
+            )
+        );
+        // Partial impl: only the missing one, after the existing member.
+        let fixture =
+            format!("{trait_def}impl Shape for Sq {{\n    fn area(&self) -> f64 {{ 1.0 }}§\n}}\n");
+        assert_eq!(
+            applied("rust", &fixture, "Implement missing methods of Shape"),
+            format!(
+                "{trait_def}impl Shape for Sq {{\n    fn area(&self) -> f64 {{ 1.0 }}\n\n    fn scale(&mut self, f: f64) {{\n        todo!()\n    }}\n}}\n"
+            )
+        );
+        // Inside a method body there is nothing to offer; neither for a trait
+        // the file does not declare.
+        let fixture =
+            format!("{trait_def}impl Shape for Sq {{\n    fn area(&self) -> f64 {{ §1.0 }}\n}}\n");
+        assert!(fills("rust", &fixture).is_empty());
+        let fixture = format!("{trait_def}impl fmt::Display for Sq {{§}}\n");
+        assert!(fills("rust", &fixture).is_empty());
+    }
+
+    #[cfg(feature = "lang-python")]
+    #[test]
+    fn implement_abc_in_python() {
+        let base = "from abc import ABC, abstractmethod\nclass Base(ABC):\n    @abstractmethod\n    def run(self, n: int) -> None: ...\n    @abstractmethod\n    def stop(self) -> None: ...\n";
+        // A placeholder body is replaced by the stubs.
+        let fixture = format!("{base}class Impl(Base):\n    pass§\n");
+        assert_eq!(
+            applied("python", &fixture, "Implement missing methods of Base"),
+            format!(
+                "{base}class Impl(Base):\n    def run(self, n: int) -> None:\n        raise NotImplementedError\n\n    def stop(self) -> None:\n        raise NotImplementedError\n"
+            )
+        );
+        // Real members: the missing stub appends after them. (At the end of
+        // the `def` line the cursor is inside that method, where the action
+        // stays quiet, so it sits on the class line here.)
+        let fixture = format!(
+            "{base}class Impl(Base):§\n    def run(self, n: int) -> None:\n        print(n)\n"
+        );
+        assert_eq!(
+            applied("python", &fixture, "Implement missing methods of Base"),
+            format!(
+                "{base}class Impl(Base):\n    def run(self, n: int) -> None:\n        print(n)\n\n    def stop(self) -> None:\n        raise NotImplementedError\n"
+            )
+        );
+    }
+
+    #[cfg(feature = "lang-typescript")]
+    #[test]
+    fn implement_interface_in_typescript() {
+        let fixture = "interface Shape {\n  area(): number;\n  name?(): string;\n}\nclass Sq implements Shape {§}\n";
+        assert_eq!(
+            applied("typescript", fixture, "Implement missing methods of Shape"),
+            "interface Shape {\n  area(): number;\n  name?(): string;\n}\nclass Sq implements Shape {\n  area(): number {\n    throw new Error(\"not implemented\");\n  }\n}\n"
+        );
+    }
+
+    #[cfg(feature = "lang-cpp")]
+    #[test]
+    fn implement_pure_virtuals_in_cpp() {
+        let fixture = "class Shape {\npublic:\n    virtual double area() const = 0;\n    virtual void scale(double f) = 0;\n};\nclass Sq : public Shape {\npublic:\n    double area() const override { return 1; }§\n};\n";
+        assert_eq!(
+            applied("cpp", fixture, "Implement missing methods of Shape"),
+            "class Shape {\npublic:\n    virtual double area() const = 0;\n    virtual void scale(double f) = 0;\n};\nclass Sq : public Shape {\npublic:\n    double area() const override { return 1; }\n    void scale(double f) override {\n    }\n};\n"
+        );
+    }
+
+    #[cfg(feature = "lang-go")]
+    #[test]
+    fn implement_interface_for_a_go_struct() {
+        let fixture = "package p\ntype Shape interface {\n\tArea() float64\n\tScale(f float64) Shape\n}\ntype Sq struct{§ s float64 }\nfunc (q *Sq) Area() float64 { return q.s }\n";
+        // The existing method's receiver is reused; the stub lands after the
+        // type declaration.
+        assert_eq!(
+            applied("go", fixture, "Implement Shape for Sq"),
+            "package p\ntype Shape interface {\n\tArea() float64\n\tScale(f float64) Shape\n}\ntype Sq struct{ s float64 }\n\nfunc (q *Sq) Scale(f float64) Shape {\n\tpanic(\"not implemented\")\n}\nfunc (q *Sq) Area() float64 { return q.s }\n"
+        );
+        // No methods yet: a pointer receiver named after the type.
+        let fixture = "package p\ntype Shape interface {\n\tArea() float64\n}\ntype Sq struct{§}\n";
+        assert_eq!(
+            applied("go", fixture, "Implement Shape for Sq"),
+            "package p\ntype Shape interface {\n\tArea() float64\n}\ntype Sq struct{}\n\nfunc (s *Sq) Area() float64 {\n\tpanic(\"not implemented\")\n}\n"
         );
     }
 }

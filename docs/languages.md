@@ -87,6 +87,7 @@ id `rust` | extensions: `rs` | LSP ids: `rust` | default indent: 4 spaces
 | [`ret`](examples/rust.md#ret) | return statement |
 | [`rfn`](examples/rust.md#rfn) | function returning Result |
 | [`struct`](examples/rust.md#struct) | struct definition |
+| [`stub`](examples/rust.md#stub) | method stub from a trait's declaration (stub*@src.Shape.methods writes the required ones; ?all for every member) |
 | [`test`](examples/rust.md#test) | test function |
 | [`tfile`](examples/rust.md#tfile) | append a #[cfg(test)] module to the --source file with a test per public fn/method (multi-file) |
 | [`tfn`](examples/rust.md#tfn) | test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
@@ -135,6 +136,7 @@ id `python` | extensions: `py` | LSP ids: `python` | default indent: 4 spaces
 | [`repr`](examples/python.md#repr) | __repr__ dunder method |
 | [`ret`](examples/python.md#ret) | return statement |
 | [`str`](examples/python.md#str) | __str__ dunder method |
+| [`stub`](examples/python.md#stub) | method stub from a Protocol/ABC declaration (stub*@src.Shape.methods writes the required ones; ?all for every member) |
 | [`test`](examples/python.md#test) | test function (pytest style) |
 | [`tfile`](examples/python.md#tfile) | create test_<source>.py beside the --source file with a pytest per public fn/method (multi-file) |
 | [`tfn`](examples/python.md#tfn) | pytest test calling a function (data-driven: tfn*@src.fns, public non-async by default) |
@@ -238,6 +240,7 @@ example, `enum` and `struct` override C's typedef forms.
 | [`sizeof`](examples/cpp.md#sizeof) | sizeof expression |
 | [`sptr`](examples/cpp.md#sptr) | std::make_shared binding |
 | [`struct`](examples/cpp.md#struct) | struct definition (overrides C's typedef form) |
+| [`stub`](examples/cpp.md#stub) | override stub from a base class's virtual (stub*@src.Shape.methods writes the pure virtuals; ?all for every virtual) |
 | [`switch`](examples/cpp.md#switch) | switch statement |
 | [`td`](examples/cpp.md#td) | typedef declaration |
 | [`tfile`](examples/cpp.md#tfile) | create <source>_test.cpp beside the --source file with a GoogleTest per public fn/method (multi-file) |
@@ -287,6 +290,7 @@ LSP ids: `javascript`, `javascriptreact` | default indent: 2 spaces
 | [`prom`](examples/javascript.md#prom) | new Promise with executor |
 | [`ret`](examples/javascript.md#ret) | return statement |
 | [`set`](examples/javascript.md#set) | setter backed by a private-by-convention field |
+| [`stub`](examples/javascript.md#stub) | method stub from an interface or abstract declaration (TypeScript: stub*@src.Shape.methods writes the required ones; ?all for every member) |
 | [`switch`](examples/javascript.md#switch) | switch statement |
 | [`test`](examples/javascript.md#test) | test case (jest/vitest style) |
 | [`tfile`](examples/javascript.md#tfile) | create <source>.test.js beside the --source file with a Jest test per exported fn/method (multi-file) |
@@ -343,6 +347,7 @@ TypeScript starts from the JavaScript pack. Several triggers such as `afn` and
 | [`prom`](examples/typescript.md#prom) | new Promise with executor |
 | [`ret`](examples/typescript.md#ret) | return statement |
 | [`set`](examples/typescript.md#set) | setter backed by a private-by-convention field |
+| [`stub`](examples/typescript.md#stub) | method stub from an interface or abstract declaration (TypeScript: stub*@src.Shape.methods writes the required ones; ?all for every member) |
 | [`switch`](examples/typescript.md#switch) | switch statement |
 | [`test`](examples/typescript.md#test) | test case (jest/vitest style) |
 | [`tfile`](examples/typescript.md#tfile) | create <source>.test.ts beside the --source file with a Jest test per exported fn/method (multi-file) |
@@ -395,6 +400,7 @@ id `go` | extensions: `go` | LSP ids: `go` | default indent: tab
 | [`ret`](examples/go.md#ret) | return statement |
 | [`sel`](examples/go.md#sel) | select statement (cases at select level, per gofmt) |
 | [`struct`](examples/go.md#struct) | struct type definition |
+| [`stub`](examples/go.md#stub) | method stub from an interface's declaration (stub*@src.Shape.methods) |
 | [`switch`](examples/go.md#switch) | switch statement (cases at switch level, per gofmt) |
 | [`test`](examples/go.md#test) | test function (testing package) |
 | [`tfile`](examples/go.md#tfile) | create <source>_test.go beside the --source file with a testing.T test per exported fn/method (multi-file) |

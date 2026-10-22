@@ -23,6 +23,13 @@
 //! once any branch names an enum's variant only that enum is offered; an
 //! empty `match`/`switch` offers every enum in sight.
 //!
+//! The second family completes an **implementation of an interface**: inside
+//! `impl Shape for Sq { … }`, `class Sq(Shape):`, `class Sq implements
+//! Shape`, a C++ class deriving from one with pure virtuals, or on a Go
+//! struct, "Implement missing methods of `Shape`" (Go: "Implement `Shape`
+//! for `Sq`") adds a stub for every required member the type lacks, from the
+//! declarations [`source::declared_members`] read out of the file.
+//!
 //! The edits are plain text (no tabstops), so any LSP client applies them
 //! without cooperating with the codemmet plugin.
 
@@ -32,6 +39,384 @@ use codemmet_core::context::{FillTarget, Item};
 use tree_sitter::Node;
 
 use crate::extract::{self, node_text};
+use crate::source;
+
+/// "Implement missing methods" targets for the implementation enclosing
+/// `offset`: one per interface it names (Go: per interface in the file) that
+/// still has required members the type does not define. Empty when the
+/// cursor is not in an implementation (or is inside one of its methods),
+/// when the file declares no interfaces, or when nothing is missing.
+pub fn implement_fills(
+    language: &str,
+    root: Node<'_>,
+    text: &str,
+    offset: usize,
+    indent_unit: &str,
+) -> Vec<FillTarget> {
+    let Some(lang) = Lang::of(language) else {
+        return Vec::new();
+    };
+    let declared = source::declared_members(language, root, text);
+    if declared.is_empty() {
+        return Vec::new();
+    }
+    let Some(site) = ImplSite::at(lang, root, text, offset) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (iface, members) in &declared {
+        if !site.implements(lang, iface) {
+            continue;
+        }
+        let missing: Vec<&Item> = members
+            .iter()
+            .filter(|m| m.members.contains_key("required"))
+            .filter(|m| !site.existing.iter().any(|e| e == &m.value))
+            .collect();
+        if missing.is_empty() {
+            continue;
+        }
+        let Some((range, new_text)) = site.edit(lang, text, indent_unit, &missing) else {
+            continue;
+        };
+        let title = match lang {
+            Lang::Go => format!("Implement {iface} for {}", site.type_name),
+            _ => format!("Implement missing methods of {iface}"),
+        };
+        out.push(FillTarget {
+            title,
+            range,
+            new_text,
+        });
+    }
+    out
+}
+
+/// An implementation site: the construct that implements interfaces.
+#[derive(Debug)]
+struct ImplSite<'t> {
+    /// The implementing type's name.
+    type_name: String,
+    /// The interfaces named by the construct (`impl X for`, bases,
+    /// `implements`); empty for Go, where implementation is implicit.
+    interfaces: Vec<String>,
+    /// The body whose braces (or block) hold the members; `None` for Go.
+    body: Option<Node<'t>>,
+    /// Names of the members the type already defines.
+    existing: Vec<String>,
+    /// Go: where stubs append (after the type declaration), and the
+    /// receiver text an existing method uses, if any.
+    append_at: usize,
+    receiver: Option<String>,
+}
+
+impl<'t> ImplSite<'t> {
+    /// The implementation enclosing `offset` (a cursor right at its end
+    /// counts), unless the cursor is inside one of its method bodies.
+    fn at(lang: Lang, root: Node<'t>, text: &str, offset: usize) -> Option<Self> {
+        Self::at_exact(lang, root, text, offset).or_else(|| {
+            offset
+                .checked_sub(1)
+                .and_then(|back| Self::at_exact(lang, root, text, back))
+        })
+    }
+
+    fn at_exact(lang: Lang, root: Node<'t>, text: &str, offset: usize) -> Option<Self> {
+        let mut node = root.named_descendant_for_byte_range(offset, offset)?;
+        loop {
+            // Inside a method body the user is writing code, not members.
+            if lang.function_kinds().contains(&node.kind()) {
+                return None;
+            }
+            if let Some(site) = Self::from_node(lang, root, node, text) {
+                return Some(site);
+            }
+            node = node.parent()?;
+        }
+    }
+
+    fn from_node(lang: Lang, root: Node<'t>, node: Node<'t>, text: &str) -> Option<Self> {
+        match (lang, node.kind()) {
+            (Lang::Rust, "impl_item") => Self::rust_impl(node, text),
+            (Lang::Python, "class_definition") => Self::python_class(node, text),
+            (Lang::Js, "class_declaration" | "abstract_class_declaration") => {
+                Self::js_class(node, text)
+            }
+            (Lang::C, "class_specifier" | "struct_specifier") => Self::cpp_class(node, text),
+            (Lang::Go, "type_declaration") => Self::go_struct(root, node, text),
+            _ => None,
+        }
+    }
+
+    /// A site with no Go-specific fields.
+    const fn in_body(
+        type_name: String,
+        interfaces: Vec<String>,
+        body: Node<'t>,
+        existing: Vec<String>,
+    ) -> Self {
+        Self {
+            type_name,
+            interfaces,
+            body: Some(body),
+            existing,
+            append_at: 0,
+            receiver: None,
+        }
+    }
+
+    /// `impl Shape for Sq { … }`: the trait's last path segment, generics
+    /// stripped.
+    fn rust_impl(node: Node<'t>, text: &str) -> Option<Self> {
+        let trait_node = node.child_by_field_name("trait")?;
+        let raw = node_text(trait_node, text);
+        let last = raw.rsplit("::").next().unwrap_or(raw);
+        let iface = last.split('<').next().unwrap_or(last).trim().to_owned();
+        let ty = node
+            .child_by_field_name("type")
+            .map(|t| node_text(t, text))?;
+        let body = node.child_by_field_name("body")?;
+        Some(Self::in_body(
+            ty.split('<').next().unwrap_or(ty).trim().to_owned(),
+            vec![iface],
+            body,
+            member_names(body, text, &["function_item"]),
+        ))
+    }
+
+    /// `class Sq(Base):` — every base name is a candidate interface.
+    fn python_class(node: Node<'t>, text: &str) -> Option<Self> {
+        let bases = node.child_by_field_name("superclasses")?;
+        let body = node.child_by_field_name("body")?;
+        let mut cursor = body.walk();
+        let existing = body
+            .named_children(&mut cursor)
+            .map(|c| c.child_by_field_name("definition").unwrap_or(c))
+            .filter(|c| c.kind() == "function_definition")
+            .filter_map(|c| extract::field_text(c, "name", text))
+            .map(str::to_owned)
+            .collect();
+        Some(Self::in_body(
+            extract::field_text(node, "name", text)?.to_owned(),
+            type_names(node_text(bases, text)),
+            body,
+            existing,
+        ))
+    }
+
+    /// `class Sq implements Shape` / `class Sub extends Base`.
+    fn js_class(node: Node<'t>, text: &str) -> Option<Self> {
+        let heritage = named_child_of_kind(node, "class_heritage")?;
+        let body = node.child_by_field_name("body")?;
+        Some(Self::in_body(
+            extract::field_text(node, "name", text)?.to_owned(),
+            type_names(node_text(heritage, text)),
+            body,
+            member_names(
+                body,
+                text,
+                &["method_definition", "abstract_method_signature"],
+            ),
+        ))
+    }
+
+    /// `class Sq : public Shape { … }`.
+    fn cpp_class(node: Node<'t>, text: &str) -> Option<Self> {
+        let bases = named_child_of_kind(node, "base_class_clause")?;
+        let body = node.child_by_field_name("body")?;
+        let mut cursor = body.walk();
+        let existing = body
+            .named_children(&mut cursor)
+            .filter_map(|c| cpp_function_name(c, text))
+            .collect();
+        Some(Self::in_body(
+            extract::field_text(node, "name", text)?.to_owned(),
+            type_names(node_text(bases, text)),
+            body,
+            existing,
+        ))
+    }
+
+    /// `type Sq struct { … }`: Go implements structurally, so the type's
+    /// methods (from the file's API surface) decide what is missing, and
+    /// stubs follow the declaration with an existing method's receiver.
+    fn go_struct(root: Node<'t>, node: Node<'t>, text: &str) -> Option<Self> {
+        let spec = named_child_of_kind(node, "type_spec")?;
+        if spec.child_by_field_name("type")?.kind() != "struct_type" {
+            return None;
+        }
+        let type_name = extract::field_text(spec, "name", text)?.to_owned();
+        let mut map = std::collections::BTreeMap::new();
+        source::definitions("go", root, text, &mut map);
+        let methods = map.remove(&source::methods_key(&type_name));
+        let receiver = methods.as_ref().and_then(|c| {
+            c.items
+                .iter()
+                .find_map(|m| m.members.get("receiver").cloned())
+        });
+        let existing = methods
+            .map(|c| c.items.into_iter().map(|m| m.value).collect())
+            .unwrap_or_default();
+        Some(Self {
+            type_name,
+            interfaces: Vec::new(),
+            body: None,
+            existing,
+            append_at: node.end_byte(),
+            receiver,
+        })
+    }
+
+    /// Whether this site implements `iface` (Go: every interface is a
+    /// candidate, since implementation is structural).
+    fn implements(&self, lang: Lang, iface: &str) -> bool {
+        lang == Lang::Go || self.interfaces.iter().any(|i| i == iface)
+    }
+
+    /// The edit adding stubs for `missing`.
+    fn edit(
+        &self,
+        lang: Lang,
+        text: &str,
+        unit: &str,
+        missing: &[&Item],
+    ) -> Option<(std::ops::Range<usize>, String)> {
+        let decl = |m: &Item| {
+            m.members
+                .get("decl")
+                .cloned()
+                .unwrap_or_else(|| m.value.clone())
+        };
+        if lang == Lang::Go {
+            return Some(self.go_edit(unit, missing));
+        }
+        let body = self.body?;
+        let line = line_indent(
+            text,
+            body.parent()
+                .map_or_else(|| body.start_byte(), |p| p.start_byte()),
+        );
+        let mut cursor = body.walk();
+        let members: Vec<Node<'_>> = body.named_children(&mut cursor).collect();
+        // The members' own indent (a C++ `public:` label sits at the class
+        // indent, so it does not count).
+        let indent = members
+            .iter()
+            .find(|m| m.kind() != "access_specifier")
+            .map_or_else(
+                || format!("{line}{unit}"),
+                |m| line_indent(text, m.start_byte()),
+            );
+        let stub = |m: &Item| match lang {
+            Lang::Rust => format!(
+                "{} {{
+{indent}{unit}todo!()
+{indent}}}",
+                decl(m)
+            ),
+            Lang::Python => format!(
+                "{}:
+{indent}{unit}raise NotImplementedError",
+                decl(m)
+            ),
+            Lang::Js => format!(
+                "{} {{
+{indent}{unit}throw new Error(\"not implemented\");
+{indent}}}",
+                decl(m)
+            ),
+            Lang::C => format!(
+                "{} override {{
+{indent}}}",
+                decl(m)
+            ),
+            Lang::Go => unreachable!("handled above"),
+        };
+        // Blank lines between members, except in C++ class bodies.
+        let sep = if lang == Lang::C {
+            "
+"
+        } else {
+            "
+
+"
+        };
+        let stubs: Vec<String> = missing.iter().map(|m| stub(m)).collect();
+        if lang == Lang::Python {
+            return python_edit(&members, &indent, sep, &stubs);
+        }
+        if let Some(last) = members.last() {
+            let mut out = String::new();
+            for s in &stubs {
+                let _ = write!(out, "{sep}{indent}{s}");
+            }
+            Some((last.end_byte()..last.end_byte(), out))
+        } else {
+            let (open, close) = (token_child(body, "{")?, token_child(body, "}")?);
+            let joined = stubs.join(&format!("{sep}{indent}"));
+            Some((
+                open.end_byte()..close.start_byte(),
+                format!(
+                    "
+{indent}{joined}
+{line}"
+                ),
+            ))
+        }
+    }
+}
+
+/// The type names in a heritage clause (`implements Shape, Other`, `(Base)`,
+/// `: public Shape`): its identifiers minus the keywords.
+fn type_names(clause: &str) -> Vec<String> {
+    clause
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|w| {
+            !w.is_empty()
+                && !matches!(
+                    *w,
+                    "implements" | "extends" | "public" | "private" | "protected" | "virtual"
+                )
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The `name` field of each named child of `body` whose kind is in `kinds`.
+fn member_names(body: Node<'_>, text: &str, kinds: &[&str]) -> Vec<String> {
+    let mut cursor = body.walk();
+    body.named_children(&mut cursor)
+        .filter(|c| kinds.contains(&c.kind()))
+        .filter_map(|c| extract::field_text(c, "name", text))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The name a C++ member declares when it is a function (definition or
+/// declaration), following the declarator chain to its `function_declarator`.
+fn cpp_function_name(member: Node<'_>, text: &str) -> Option<String> {
+    if !matches!(
+        member.kind(),
+        "function_definition" | "field_declaration" | "declaration"
+    ) {
+        return None;
+    }
+    let mut declarator = member.child_by_field_name("declarator")?;
+    loop {
+        match declarator.kind() {
+            "function_declarator" => {
+                let name = declarator.child_by_field_name("declarator")?;
+                return Some(node_text(name, text).to_owned());
+            }
+            "pointer_declarator" | "reference_declarator" => {
+                declarator = declarator
+                    .child_by_field_name("declarator")
+                    .or_else(|| declarator.named_child(0))?;
+            }
+            _ => return None,
+        }
+    }
+}
 
 /// Fill targets for the dispatch construct enclosing `offset`: one per enum
 /// that still has unhandled variants there. Empty when the cursor is not
@@ -129,6 +514,23 @@ impl Lang {
         }
     }
 
+    /// Function-like node kinds: climbing out of one of these means the
+    /// cursor is inside a method body, not among a type's members.
+    const fn function_kinds(self) -> &'static [&'static str] {
+        match self {
+            Self::Rust => &["function_item", "closure_expression"],
+            Self::C => &["function_definition", "lambda_expression"],
+            Self::Go => &["function_declaration", "method_declaration", "func_literal"],
+            Self::Js => &[
+                "method_definition",
+                "function_declaration",
+                "function_expression",
+                "arrow_function",
+            ],
+            Self::Python => &["function_definition", "lambda"],
+        }
+    }
+
     /// The node kinds of one arm/case (the default case included).
     const fn case_kinds(self) -> &'static [&'static str] {
         match self {
@@ -168,8 +570,18 @@ enum Site<'t> {
 }
 
 impl<'t> Site<'t> {
-    /// The innermost dispatch construct enclosing `offset`.
+    /// The innermost dispatch construct enclosing `offset`. A cursor right
+    /// at the end of a construct (the end of a Python `pass` line) counts as
+    /// inside it.
     fn at(lang: Lang, root: Node<'t>, text: &str, offset: usize) -> Option<Self> {
+        Self::at_exact(lang, root, text, offset).or_else(|| {
+            offset
+                .checked_sub(1)
+                .and_then(|back| Self::at_exact(lang, root, text, back))
+        })
+    }
+
+    fn at_exact(lang: Lang, root: Node<'t>, text: &str, offset: usize) -> Option<Self> {
         let mut node = root.named_descendant_for_byte_range(offset, offset)?;
         loop {
             if node.kind() == lang.cases_kind() {
@@ -595,4 +1007,60 @@ fn line_indent(text: &str, offset: usize) -> String {
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .collect()
+}
+
+impl ImplSite<'_> {
+    /// Go stubs: `func (recv) Decl { panic(…) }` after the type declaration,
+    /// with an existing method's receiver or `s *Sq`.
+    fn go_edit(&self, unit: &str, missing: &[&Item]) -> (std::ops::Range<usize>, String) {
+        let receiver = self.receiver.clone().unwrap_or_else(|| {
+            let short: String = self
+                .type_name
+                .chars()
+                .next()
+                .map(|c| c.to_ascii_lowercase())
+                .into_iter()
+                .collect();
+            format!("{short} *{}", self.type_name)
+        });
+        let mut out = String::new();
+        for m in missing {
+            let decl = m
+                .members
+                .get("decl")
+                .map_or(m.value.as_str(), String::as_str);
+            let _ = write!(
+                out,
+                "\n\nfunc ({receiver}) {decl} {{\n{unit}panic(\"not implemented\")\n}}"
+            );
+        }
+        (self.append_at..self.append_at, out)
+    }
+}
+
+/// Python stubs: a placeholder body (`pass`, `...`, a docstring) is replaced;
+/// real members get the stubs appended after them.
+fn python_edit(
+    members: &[Node<'_>],
+    indent: &str,
+    sep: &str,
+    stubs: &[String],
+) -> Option<(std::ops::Range<usize>, String)> {
+    let (first, last) = (members.first()?, members.last()?);
+    let placeholder = members.iter().all(|m| match m.kind() {
+        "pass_statement" => true,
+        "expression_statement" => m
+            .named_child(0)
+            .is_some_and(|e| matches!(e.kind(), "ellipsis" | "string")),
+        _ => false,
+    });
+    let joined = stubs.join(&format!("{sep}{indent}"));
+    Some(if placeholder {
+        (first.start_byte()..last.end_byte(), joined)
+    } else {
+        (
+            last.end_byte()..last.end_byte(),
+            format!("{sep}{indent}{joined}"),
+        )
+    })
 }

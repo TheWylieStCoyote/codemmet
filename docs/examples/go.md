@@ -900,6 +900,35 @@ type Server struct {
 
 `struct:Server` names the type via a glued argument and leaves the body open for fields. Nest a `doc` comment or fields with `>`.
 
+### `stub`
+
+Method stub from an interface's declaration.
+
+```sh
+codemmet expand --lang go "stub"
+```
+
+```go
+func (r *Type) Name() {
+	
+}
+```
+
+```sh
+codemmet expand --lang go "stub*@Shape?all" --repeat Shape=Area,Scale --member "Shape.decl=Area() float64,Scale(f float64) Shape"
+```
+
+```go
+func (r *Type) Area() float64 {
+	
+}
+func (r *Type) Scale(f float64) Shape {
+	
+}
+```
+
+In a file (or `--source`) with `type Shape interface`, `stub*@src.Shape.methods` writes one method per interface member; the receiver is two tabstops, as in `meth`.
+
 ### `switch`
 
 Switch statement. Its cases sit at the switch level per gofmt.

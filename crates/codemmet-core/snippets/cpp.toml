@@ -313,3 +313,13 @@ on_exists = "append"
 on_create = '#include "${src.module}"'
 primary = true
 expands = "tfn*@src.fns+tmeth*@src.methods"
+
+[snippets.stub]
+description = "override stub from a base class's virtual (stub*@src.Shape.methods writes the pure virtuals; ?all for every virtual)"
+filter = "required"
+scope = "fn-body"
+body = '''
+${value.decl:void name()} override {
+	${child}
+}
+'''

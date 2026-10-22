@@ -892,6 +892,35 @@ struct Point {
 
 A `struct` with a glued name argument (`:Point`). Nesting with `>` places items such as a field doc comment inside the body.
 
+### `stub`
+
+Method stub from a trait's declaration.
+
+```sh
+codemmet expand --lang rust "stub"
+```
+
+```rust
+fn name(&self) {
+    
+}
+```
+
+```sh
+codemmet expand --lang rust "stub*@Shape?all" --repeat Shape=area,scale --member "Shape.decl=fn area(&self) -> f64,fn scale(&mut self)"
+```
+
+```rust
+fn area(&self) -> f64 {
+    
+}
+fn scale(&mut self) {
+    
+}
+```
+
+In a file (or `--source`) with `trait Shape`, `stub*@src.Shape.methods` reads the declarations and writes a stub for every *required* method (the default filter); `?all` includes the ones the trait provides a body for. `implt` gives it a home: `implt>stub*@src.Shape.methods`.
+
 ### `test`
 
 test function.

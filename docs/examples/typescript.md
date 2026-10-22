@@ -835,6 +835,35 @@ class User {
 
 The glued argument names the property; the body assigns to the matching `this._name` field. Nested inside a class it becomes an accessor member.
 
+### `stub`
+
+Method stub from an interface or abstract declaration.
+
+```sh
+codemmet expand --lang typescript "stub"
+```
+
+```typescript
+name() {
+  
+}
+```
+
+```sh
+codemmet expand --lang typescript "stub*@Shape?all" --repeat Shape=area,scale --member "Shape.decl=area(): number,scale(f: number): void"
+```
+
+```typescript
+area(): number {
+  
+}
+scale(f: number): void {
+  
+}
+```
+
+In a file (or `--source`) with `interface Shape` or an `abstract class`, `stub*@src.Shape.methods` writes a stub for every required member (optional `name?()` members are not); `?all` includes them.
+
 ### `switch`
 
 A switch statement.

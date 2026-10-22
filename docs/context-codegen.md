@@ -197,7 +197,7 @@ own type names):
 | `src.fns` | free functions (top level, and inside modules/namespaces) | `name`, `params`, `args`, `ret`, `vis`, `async`, `test`, `module` |
 | `src.types` | classes, structs, enums, traits, interfaces, unions, type aliases | `name`, `kind`, `vis`, `module` |
 | `src.methods` | every method, with its `owner` | as `src.fns`, plus `owner`, `receiver`, `static`, `ctor`, `trait` |
-| `src.<Type>.methods` | the methods of one type, merged across its `impl` blocks / class body | same as `src.methods` |
+| `src.<Type>.methods` | the methods of one type, merged across its `impl` blocks / class body — or, for a trait / protocol / interface, its [declared members](#implementing-an-interface) | same as `src.methods`, plus `decl`, `required` |
 
 Every item's value is the **bare name**, so `${value}` is what you call;
 `${value.args}` is the comma-joined parameter names for the call and
@@ -279,6 +279,8 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `async` | `async ` (display-ready prefix) | Rust, Python, JS/TS async functions |
 | `static` | `static` on methods without a receiver / marked static | Rust associated fns, Python `@staticmethod`, C++/JS/TS `static` |
 | `receiver` | the receiver as written | Rust `&mut self`, Python `self`/`cls`, Go `p *Point` |
+| `decl` | an interface member's declaration as written, `;`/body dropped | trait, `Protocol`/`ABC`, interface and `virtual` methods (`fn area(&self) -> f64`, `Area() float64`) |
+| `required` | `required` when an implementor must supply the member | signature-only trait methods, `@abstractmethod` / `...` bodies, every Go interface method, non-optional TS members, pure virtuals |
 | `owner` | the type a method belongs to | `src.methods` |
 | `trait` | the trait an `impl Trait for Type` method implements | Rust |
 | `ctor` | `ctor` on constructors | Rust `new`, Python `__init__`, C++ `Point()`, JS/TS `constructor` |
@@ -472,6 +474,34 @@ Rust payload variants are handled minimally: a tuple variant extracts as
 `match` arm compiles without your having to name each field. The bindings are
 wildcards — replace them if you need the payload.
 
+### Implementing an interface
+
+An interface-like type — a Rust trait, a Python `Protocol` or `ABC`
+subclass, a Go interface, a TypeScript interface or abstract class, a C++
+class with `virtual` methods — contributes its **declared members** as
+`src.<Name>.methods`, each with `decl` (the declaration as written) and
+`required` when an implementor has to supply it (no default body,
+`@abstractmethod`, a `...` body, pure virtual, …). Declarations are not
+concrete methods, so they stay out of `src.methods`; a member the interface
+also provides a body for is both and carries both sets of members.
+
+Every pack with interfaces has a `stub` trigger that writes a method stub
+from `decl`, and its default filter keeps the required ones:
+
+```sh
+codemmet expand --lang rust --source shape.rs "stub*@src.Shape.methods"       # the required methods
+codemmet expand --lang rust --source shape.rs "stub*@src.Shape.methods?all"   # every member
+```
+
+```rust
+fn area(&self) -> f64 {
+    
+}
+```
+
+Go's `stub` takes the receiver as tabstops (`func (r *Type) Area() float64`),
+C++'s appends `override`, Python's writes `def area(self) -> float:`.
+
 ### Dispatching over every value
 
 Every language has two shapes for "handle each value differently", and both
@@ -547,6 +577,31 @@ names an enum's variant, only that enum is offered; an empty `match` or
 `switch` offers every enum in the file plus the language's builtins
 (`Option`, `Result`, `bool`, …). The edits are plain text (no tabstops), so
 they work in any LSP client — no codemmet plugin needed.
+
+### Implement missing methods
+
+The [interface members](#implementing-an-interface) drive a second action.
+With the cursor among a type's members — inside `impl Shape for Sq { … }`,
+`class Sq(Base):`, `class Sq implements Shape { … }`, a C++ `class Sq :
+public Shape { … }`, or on a Go `type Sq struct` — **"Implement missing
+methods of `Shape`"** (Go: **"Implement `Shape` for `Sq`"**, offered for every
+interface in the file the struct does not satisfy, since Go implements
+structurally) adds a stub for each required member the type lacks:
+
+```rust
+impl Shape for Sq {
+    fn area(&self) -> f64 {
+        todo!()
+    }
+}
+```
+
+Stubs use the language's "not yet" idiom — `todo!()`, `raise
+NotImplementedError`, `throw new Error("not implemented")`, `panic("not
+implemented")`, an empty `override` body — and land after the existing
+members (a Python `pass` or `...` placeholder body is replaced; Go stubs
+follow the type declaration, reusing the receiver of an existing method).
+Inside a method body the action stays out of the way.
 
 ### Add missing tests
 

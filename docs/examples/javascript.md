@@ -788,6 +788,35 @@ class Box {
 
 Composed inside `class:Box`, the setter is placed as a member of the class body.
 
+### `stub`
+
+Method stub from an interface or abstract declaration.
+
+```sh
+codemmet expand --lang javascript "stub"
+```
+
+```javascript
+name() {
+  
+}
+```
+
+```sh
+codemmet expand --lang javascript "stub*@Shape?all" --repeat Shape=area,scale --member "Shape.decl=area(),scale(f)"
+```
+
+```javascript
+area() {
+  
+}
+scale(f) {
+  
+}
+```
+
+JavaScript has no interfaces of its own, so the collection comes from `--repeat`/`--member` here; TypeScript inherits the trigger and reads `interface`/`abstract class` declarations from the file.
+
 ### `switch`
 
 A switch statement.

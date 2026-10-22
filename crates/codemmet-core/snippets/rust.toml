@@ -555,3 +555,13 @@ into = "tests"
 wrap = "tmod"
 primary = true
 expands = "tfn*@src.fns+tmeth*@src.methods"
+
+[snippets.stub]
+description = "method stub from a trait's declaration (stub*@src.Shape.methods writes the required ones; ?all for every member)"
+filter = "required"
+scope = "fn-body"
+body = '''
+${value.decl:fn name(&self)} {
+	${child}
+}
+'''

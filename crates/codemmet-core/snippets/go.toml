@@ -445,3 +445,13 @@ on_exists = "append"
 on_create = "package ${src.module}"
 primary = true
 expands = "tfn*@src.fns+tmeth*@src.methods"
+
+[snippets.stub]
+description = "method stub from an interface's declaration (stub*@src.Shape.methods)"
+filter = "required"
+scope = "fn-body"
+body = '''
+func (${1:r} ${2:*Type}) ${value.decl:Name()} {
+	${child}
+}
+'''

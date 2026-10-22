@@ -761,6 +761,35 @@ struct Point {
 
 Overrides C's `typedef struct { ... }` form with a plain C++ `struct Name { ... }`. The name comes from the explicit `:Point` argument, and the `>` child operator nests members inside.
 
+### `stub`
+
+Override stub from a base class's virtual.
+
+```sh
+codemmet expand --lang cpp "stub"
+```
+
+```cpp
+void name() override {
+    
+}
+```
+
+```sh
+codemmet expand --lang cpp "stub*@Shape?all" --repeat Shape=area,scale --member "Shape.decl=double area() const,void scale(double f)"
+```
+
+```cpp
+double area() const override {
+    
+}
+void scale(double f) override {
+    
+}
+```
+
+In a file (or `--source`) whose class declares `virtual` methods, `stub*@src.Shape.methods` writes an `override` for every pure virtual (`= 0`); `?all` includes the virtuals with a body.
+
 ### `switch`
 
 Switch statement.

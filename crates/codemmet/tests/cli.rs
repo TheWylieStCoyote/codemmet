@@ -774,6 +774,60 @@ fn expand_dispatch_from_an_enum_across_languages() {
     );
 }
 
+/// A trait's declared methods are `src.<Trait>.methods` with `decl` and
+/// `required`; `stub*` writes a stub per required member from `decl`.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn expand_stubs_from_a_trait_declaration() {
+    let dir = scratch_dir("expand-stubs");
+    let rs = dir.join("shape.rs");
+    std::fs::write(
+        &rs,
+        "pub trait Shape {\n    fn area(&self) -> f64;\n    fn name(&self) -> String { String::new() }\n}\n",
+    )
+    .expect("fixture should be writable");
+    let out = run(
+        "expand-stubs",
+        &[
+            "expand",
+            "--lang",
+            "rust",
+            "--no-project",
+            "--source",
+            rs.to_str().expect("UTF-8 path"),
+            "stub*@src.Shape.methods",
+        ],
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "fn area(&self) -> f64 {\n    \n}\n");
+    let out = run(
+        "expand-stubs",
+        &[
+            "expand",
+            "--lang",
+            "rust",
+            "--no-project",
+            "--source",
+            rs.to_str().expect("UTF-8 path"),
+            "stub*@src.Shape.methods?all",
+        ],
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "fn area(&self) -> f64 {\n    \n}\nfn name(&self) -> String {\n    \n}\n"
+    );
+    let out = run("expand-stubs", &["vars", rs.to_str().expect("UTF-8 path")]);
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("src.Shape.methods:\n  area  decl=\"fn area(&self) -> f64\" owner=\"Shape\" receiver=\"&self\" required=\"required\""),
+        "stdout: {text}"
+    );
+    // Declarations are not concrete methods.
+    assert!(text.contains("src.methods:\n  (none)"), "stdout: {text}");
+}
+
 /// Well-known types need no definition in sight: `Option`, `Result`, `bool`.
 #[cfg(feature = "tree-sitter")]
 #[test]

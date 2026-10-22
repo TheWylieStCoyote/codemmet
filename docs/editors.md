@@ -391,8 +391,10 @@ codemmet advertises `textDocument/codeAction`, so no plugin wiring is needed:
 put the cursor inside a `match`, a `switch`, or an `if` / `else if` chain over
 an enum value and trigger your editor's code actions to get **"Fill match arms
 from `Name`"**, **"Fill switch cases from `Name`"**, or **"Fill if chain from
-`Name`"**, which add one branch per variant the code does not handle yet (see
-[context-aware & data-driven expansion](context-codegen.md#code-actions)).
+`Name`"**, which add one branch per variant the code does not handle yet; among
+a type's members, **"Implement missing methods of `Name`"** stubs what a trait,
+protocol, interface or abstract base still requires (see [context-aware &
+data-driven expansion](context-codegen.md#code-actions)).
 In Neovim:
 
 ```vim

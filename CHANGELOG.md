@@ -27,6 +27,17 @@ follows [Semantic Versioning](https://semver.org/).
   `bool` (Python, with `True`/`False`) and `bool`/`boolean` elsewhere are
   always available, so `match:r>arm*@Result` needs no definition in sight.
   A file's own type of the same name wins; `--repeat` wins over both.
+- **Interface members and "Implement missing methods".** A Rust trait, a
+  Python `Protocol`/`ABC`, a Go interface, a TypeScript interface or
+  abstract class, and a C++ class's `virtual` methods now contribute their
+  declared members as `src.<Name>.methods`, each with `decl` (the
+  declaration as written) and `required` (no default body, `@abstractmethod`,
+  pure virtual, …); declarations stay out of `src.methods`. A new `stub`
+  trigger (Rust, Python, Go, JavaScript/TypeScript, C++) writes a method
+  stub per required member from `decl` (`stub*@src.Shape.methods`, `?all`
+  for every member). A code action — "Implement missing methods of `Shape`",
+  Go "Implement `Shape` for `Sq`" — adds the stubs a type still lacks inside
+  its `impl`/class body (after the type declaration in Go).
 - **Positional `when` predicates and `${join}`.** `first`, `last` and `i=n`
   select a variant by the copy's place in its repeat (with or without an
   item), and a body starting with `${join}` continues the previous copy's

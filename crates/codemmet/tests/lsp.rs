@@ -260,6 +260,30 @@ fn code_action_fills_match_arms_from_a_buffer_enum() {
 }
 
 #[test]
+fn code_action_implements_missing_trait_methods() {
+    let (mut client, _) = LspClient::start("code-action-impl", &["utf-8"], &json!({}));
+    client.open(
+        URI,
+        "rust",
+        "pub trait Shape {\n    fn area(&self) -> f64;\n    fn name(&self) -> String { String::new() }\n}\nstruct Sq;\nimpl Shape for Sq {}\n",
+    );
+    // Line 5 is `impl Shape for Sq {}`; column 19 is between the braces.
+    let result = client.code_action(URI, 5, 19);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 1, "actions: {result}");
+    assert_eq!(
+        actions[0]["title"],
+        json!("Implement missing methods of Shape")
+    );
+    let edit = &actions[0]["edit"]["changes"][URI][0];
+    assert_eq!(
+        edit["newText"],
+        json!("\n    fn area(&self) -> f64 {\n        todo!()\n    }\n")
+    );
+    client.shutdown();
+}
+
+#[test]
 fn code_action_fills_a_c_switch_and_a_python_if_chain() {
     // A `switch` with one case: only the enum that case names is offered, and
     // the missing cases append after it, before `default`.

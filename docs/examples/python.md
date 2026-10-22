@@ -784,6 +784,32 @@ class Point:
 
 The `>` child operator nests the `__str__` method inside the class body.
 
+### `stub`
+
+Method stub from a Protocol/ABC declaration.
+
+```sh
+codemmet expand --lang python "stub"
+```
+
+```python
+def name(self):
+    
+```
+
+```sh
+codemmet expand --lang python "stub*@Shape?all" --repeat Shape=area,scale --member "Shape.decl=def area(self) -> float,def scale(self)"
+```
+
+```python
+def area(self) -> float:
+    
+def scale(self):
+    
+```
+
+In a file (or `--source`) with `class Shape(Protocol)` or an `ABC`, `stub*@src.Shape.methods` writes a stub for every required method (`@abstractmethod`, or a `...` body); `?all` includes the ones with a real body.
+
 ### `test`
 
 Test function (pytest style).

@@ -63,6 +63,36 @@ pub fn definitions(
     defs.into_map(map);
 }
 
+/// The declared members of every interface-like type in the file, keyed by
+/// the type's name.
+///
+/// Interface-like: a Rust trait, a Python `Protocol`/`ABC`, a Go interface,
+/// a TypeScript interface or abstract class, a C++ class with virtuals. Each
+/// item is the method as a `src.*` item (see [`definitions`]) plus `decl`,
+/// the declaration as written (`fn area(&self) -> f64`), and `required` when
+/// an implementor must supply it (no default body, `@abstractmethod`, pure
+/// virtual, …). This is what the "implement missing methods" code actions
+/// and `stub*@src.<Iface>.methods` read.
+#[must_use]
+pub fn declared_members(language: &str, root: Node<'_>, text: &str) -> BTreeMap<String, Vec<Item>> {
+    let mut defs = Defs::default();
+    match language {
+        "rust" => rust::walk(root, text, None, &mut defs),
+        "python" => python::walk(root, text, &mut defs),
+        "c" | "cpp" => c::walk(root, text, None, &mut defs),
+        "javascript" | "typescript" => js::walk(root, text, None, false, &mut defs),
+        "go" => go::walk(root, text, &mut defs),
+        _ => {}
+    }
+    let mut by_owner: BTreeMap<String, Vec<Item>> = BTreeMap::new();
+    for item in defs.declared {
+        if let Some(owner) = item.members.get("owner") {
+            by_owner.entry(owner.clone()).or_default().push(item);
+        }
+    }
+    by_owner
+}
+
 // ---------------------------------------------------------------------------
 // Accumulator
 // ---------------------------------------------------------------------------
@@ -89,7 +119,7 @@ impl Vis {
 // The flags mirror the member vocabulary one-to-one; a bitset would obscure
 // which member each one renders.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Func {
     name: String,
     /// Each declared parameter as written (receiver removed).
@@ -112,6 +142,10 @@ struct Func {
     is_test: bool,
     is_ctor: bool,
     module: Option<String>,
+    /// The declaration as written, for an interface member (`decl`).
+    decl: Option<String>,
+    /// An interface member an implementor must supply (`required`).
+    is_required: bool,
 }
 
 impl Func {
@@ -167,6 +201,12 @@ impl Func {
         if let Some(module) = self.module {
             m.insert("module".to_owned(), module);
         }
+        if let Some(decl) = self.decl {
+            m.insert("decl".to_owned(), decl);
+        }
+        if self.is_required {
+            m.insert("required".to_owned(), "required".to_owned());
+        }
         if !self.param_items.is_empty() {
             item.collections.insert(
                 "params".to_owned(),
@@ -219,11 +259,21 @@ struct Defs {
     fns: Vec<Item>,
     types: Vec<Item>,
     methods: Vec<Item>,
+    /// Interface members (trait/protocol/interface declarations), with
+    /// `owner` = the interface. They join `src.<Iface>.methods` but not
+    /// `src.methods`, which lists the file's *concrete* methods.
+    declared: Vec<Item>,
 }
 
 impl Defs {
     fn push_fn(&mut self, func: Func) {
         upsert(&mut self.fns, func.into_item(), same_fn);
+    }
+
+    fn push_declared(&mut self, func: Func) {
+        upsert(&mut self.declared, func.into_item(), |a, b| {
+            same_fn(a, b) && a.members.get("owner") == b.members.get("owner")
+        });
     }
 
     fn push_type(&mut self, item: Item) {
@@ -245,13 +295,19 @@ impl Defs {
                 item.value
             )
         });
+        // An interface's declared members come first, in declaration order;
+        // a concrete method of the same name merges into its declaration
+        // (a Protocol method with a body is both), so the item carries
+        // `decl`/`required` alongside the usual members.
         let mut by_owner: BTreeMap<String, Vec<Item>> = BTreeMap::new();
+        for item in self.declared {
+            if let Some(owner) = item.members.get("owner").cloned() {
+                by_owner.entry(owner).or_default().push(item);
+            }
+        }
         for item in &self.methods {
-            if let Some(owner) = item.members.get("owner") {
-                by_owner
-                    .entry(owner.clone())
-                    .or_default()
-                    .push(item.clone());
+            if let Some(owner) = item.members.get("owner").cloned() {
+                upsert(by_owner.entry(owner).or_default(), item.clone(), same_fn);
             }
         }
         for (owner, items) in by_owner {
@@ -400,6 +456,9 @@ mod rust {
                     if let Some(name) = field_text(child, "name", text) {
                         let kind = child.kind().trim_end_matches("_item");
                         defs.push_type(type_item(name, kind, Some(vis_of(child)), module));
+                        if kind == "trait" {
+                            trait_body(child, name, text, defs);
+                        }
                     }
                 }
                 "impl_item" => impl_block(child, text, defs),
@@ -460,6 +519,44 @@ mod rust {
                     func.trait_name.clone_from(&trait_name);
                     func.is_ctor = func.name == "new";
                     defs.push_method(func);
+                }
+                _ => {}
+            }
+            attrs.clear();
+        }
+    }
+
+    /// A trait's declared methods: a `function_signature_item` is required
+    /// of every implementor, a `function_item` has a default body. Both are
+    /// recorded with `decl` (the signature as written, `;`/body dropped).
+    fn trait_body(node: Node<'_>, name: &str, text: &str, defs: &mut Defs) {
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        let mut attrs: Vec<Node<'_>> = Vec::new();
+        for child in children(body) {
+            match child.kind() {
+                "attribute_item" => {
+                    attrs.push(child);
+                    continue;
+                }
+                "function_signature_item" | "function_item" => {
+                    let mut func = function(child, text, &attrs);
+                    func.owner = Some(name.to_owned());
+                    func.trait_name = Some(name.to_owned());
+                    func.vis = Some(Vis::Public);
+                    let end = child
+                        .child_by_field_name("body")
+                        .map_or_else(|| child.end_byte(), |b| b.start_byte());
+                    func.decl = Some(
+                        text[child.start_byte()..end]
+                            .trim()
+                            .trim_end_matches(';')
+                            .trim()
+                            .to_owned(),
+                    );
+                    func.is_required = child.kind() == "function_signature_item";
+                    defs.push_declared(func);
                 }
                 _ => {}
             }
@@ -560,12 +657,44 @@ mod python {
             return;
         };
         defs.push_type(type_item(name, "class", Some(vis_of(name)), None));
+        // A `Protocol` or `ABC` subclass (or `metaclass=ABCMeta`) declares an
+        // interface: its methods are members implementors supply.
+        let is_interface = field_nodes(node, "superclasses").iter().any(|s| {
+            let bases = node_text(*s, text);
+            ["Protocol", "ABC", "ABCMeta"]
+                .iter()
+                .any(|marker| mentions_word(bases, marker))
+        });
         for child in field_nodes(node, "body") {
             let (member, decorators) = unwrap_decorated(child, text);
             match member.kind() {
                 "function_definition" => {
                     let mut func = function(member, text, &decorators, Some(name));
                     func.is_ctor = func.name == "__init__";
+                    if is_interface {
+                        // Required: `@abstractmethod`, or a body that is only
+                        // `...` / `pass` / a docstring (a Protocol signature).
+                        let abstract_marker = decorators
+                            .iter()
+                            .any(|d| d == "abstractmethod" || d.ends_with(".abstractmethod"));
+                        let required = abstract_marker || is_bodyless(member, text);
+                        let end = member
+                            .child_by_field_name("body")
+                            .map_or_else(|| member.end_byte(), |b| b.start_byte());
+                        let mut declared = func.clone();
+                        declared.decl = Some(
+                            text[member.start_byte()..end]
+                                .trim()
+                                .trim_end_matches(':')
+                                .trim()
+                                .to_owned(),
+                        );
+                        declared.is_required = required;
+                        defs.push_declared(declared);
+                        if required {
+                            continue;
+                        }
+                    }
                     defs.push_method(func);
                 }
                 // A nested class is a type of its own.
@@ -573,6 +702,33 @@ mod python {
                 _ => {}
             }
         }
+    }
+
+    /// Whether a function's body is a stand-in — only `...`, `pass`, or a
+    /// docstring — the way a `Protocol` declares a method it does not define.
+    fn is_bodyless(func: Node<'_>, text: &str) -> bool {
+        let Some(body) = func.child_by_field_name("body") else {
+            return true;
+        };
+        children(body).iter().all(|stmt| match stmt.kind() {
+            "pass_statement" => true,
+            "expression_statement" => stmt.named_child(0).is_some_and(|e| {
+                matches!(e.kind(), "ellipsis" | "string") || node_text(e, text) == "..."
+            }),
+            _ => false,
+        })
+    }
+
+    /// Whether `needle` occurs in `hay` as a whole word.
+    fn mentions_word(hay: &str, needle: &str) -> bool {
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        hay.match_indices(needle).any(|(at, _)| {
+            hay[..at].chars().next_back().is_none_or(|c| !is_word(c))
+                && hay[at + needle.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| !is_word(c))
+        })
     }
 
     /// A leading underscore is private by convention; dunders (`__init__`)
@@ -641,8 +797,8 @@ mod python {
 
 mod c {
     use super::{
-        Defs, Func, Vis, children, field_nodes, field_text, innermost_ident, join_module,
-        node_text, type_item,
+        Defs, Func, Vis, children, field_nodes, field_text, has_token, innermost_ident,
+        join_module, node_text, type_item,
     };
     use tree_sitter::Node;
 
@@ -733,6 +889,36 @@ mod c {
                     if let Some(mut func) = function(child, text, access) {
                         func.owner = Some(owner.to_owned());
                         func.is_ctor = func.name == owner;
+                        // A `virtual` member is an interface member: pure
+                        // (`= 0`) ones are required of a subclass and are
+                        // not callable methods of this class; the others
+                        // are both.
+                        if has_token(child, "virtual") {
+                            let pure = child
+                                .child_by_field_name("default_value")
+                                .is_some_and(|v| node_text(v, text).trim() == "0");
+                            let end = child
+                                .child_by_field_name("body")
+                                .map_or_else(|| child.end_byte(), |b| b.start_byte());
+                            let raw = text[child.start_byte()..end].trim();
+                            let decl = raw
+                                .trim_end_matches(';')
+                                .trim()
+                                .trim_end_matches('0')
+                                .trim_end()
+                                .trim_end_matches('=')
+                                .trim()
+                                .strip_prefix("virtual")
+                                .map_or(raw, str::trim)
+                                .to_owned();
+                            let mut declared = func.clone();
+                            declared.decl = Some(decl);
+                            declared.is_required = pure;
+                            defs.push_declared(declared);
+                            if pure {
+                                continue;
+                            }
+                        }
                         defs.push_method(func);
                     }
                 }
@@ -920,10 +1106,21 @@ mod js {
                 if let Some(name) = field_text(node, "name", text) {
                     defs.push_type(type_item(name, "class", Some(vis), module));
                     for member in field_nodes(node, "body") {
-                        if member.kind() == "method_definition" {
-                            let mut func = function(member, text, Some(name));
-                            func.is_ctor = func.name == "constructor";
-                            defs.push_method(func);
+                        match member.kind() {
+                            "method_definition" => {
+                                let mut func = function(member, text, Some(name));
+                                func.is_ctor = func.name == "constructor";
+                                defs.push_method(func);
+                            }
+                            // `abstract run(n: number): void;` — a subclass
+                            // must implement it.
+                            "abstract_method_signature" => {
+                                let mut func = function(member, text, Some(name));
+                                func.decl = Some(signature_decl(member, text));
+                                func.is_required = true;
+                                defs.push_declared(func);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -933,6 +1130,19 @@ mod js {
                     let kind = node.kind().trim_end_matches("_declaration");
                     let kind = if kind == "type_alias" { "type" } else { kind };
                     defs.push_type(type_item(name, kind, Some(vis), module));
+                    if kind == "interface" {
+                        // Method signatures are the interface's members; an
+                        // optional one (`name?()`) is not required.
+                        for member in field_nodes(node, "body") {
+                            if member.kind() == "method_signature" {
+                                let mut func = function(member, text, Some(name));
+                                func.vis = Some(Vis::Public);
+                                func.decl = Some(signature_decl(member, text));
+                                func.is_required = !has_token(member, "?");
+                                defs.push_declared(func);
+                            }
+                        }
+                    }
                 }
             }
             // TS `namespace X { … }`
@@ -944,6 +1154,22 @@ mod js {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// A method signature as an implementor writes it: `abstract` and the
+    /// optional `?` dropped, no trailing `;` (`name?(): string` → `name():
+    /// string`).
+    fn signature_decl(node: Node<'_>, text: &str) -> String {
+        let raw = node_text(node, text).trim().trim_end_matches(';').trim();
+        let raw = raw.strip_prefix("abstract").map_or(raw, str::trim);
+        match node.child_by_field_name("name") {
+            Some(name) if has_token(node, "?") => {
+                let name_end = name.end_byte() - node.start_byte();
+                let (head, tail) = raw.split_at(name_end.min(raw.len()));
+                format!("{head}{}", tail.trim_start().trim_start_matches('?'))
+            }
+            _ => raw.to_owned(),
         }
     }
 
@@ -1026,12 +1252,28 @@ mod go {
                         let Some(name) = field_text(spec, "name", text) else {
                             continue;
                         };
-                        let kind = match spec.child_by_field_name("type").map(|t| t.kind()) {
+                        let ty = spec.child_by_field_name("type");
+                        let kind = match ty.map(|t| t.kind()) {
                             Some("struct_type") => "struct",
                             Some("interface_type") => "interface",
                             _ => "type",
                         };
                         defs.push_type(type_item(name, kind, Some(vis_of(name)), None));
+                        if kind == "interface"
+                            && let Some(iface) = ty
+                        {
+                            // Every method element is required of an
+                            // implementor (embedded interfaces are skipped).
+                            for elem in children(iface) {
+                                if matches!(elem.kind(), "method_elem" | "method_spec") {
+                                    let mut func = function(elem, text);
+                                    func.owner = Some(name.to_owned());
+                                    func.decl = Some(node_text(elem, text).trim().to_owned());
+                                    func.is_required = true;
+                                    defs.push_declared(func);
+                                }
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -1630,5 +1872,164 @@ type Shape interface { Area() float64 }
     #[test]
     fn unsupported_language_yields_nothing() {
         assert!(collections("nope", "fn x() {}").is_empty());
+    }
+
+    // ---- Interface members (traits, protocols, interfaces, virtuals) -------
+
+    #[cfg(feature = "lang-rust")]
+    #[test]
+    fn rust_trait_members_are_declared_not_concrete() {
+        let map = collections(
+            "rust",
+            "pub trait Shape {\n    fn area(&self) -> f64;\n    fn name(&self) -> String { String::new() }\n}\nstruct Sq;\nimpl Shape for Sq {\n    fn area(&self) -> f64 { 1.0 }\n}\n",
+        );
+        // The trait's own methods, in declaration order, with `decl`; only
+        // the signature-only one is `required`.
+        assert_eq!(names(&map, "src.Shape.methods"), ["area", "name"]);
+        assert_eq!(
+            member(&map, "src.Shape.methods", "area", "decl"),
+            "fn area(&self) -> f64"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "area", "required"),
+            "required"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "name", "required"),
+            "<absent>"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "name", "decl"),
+            "fn name(&self) -> String"
+        );
+        // Declarations are not concrete methods: `src.methods` has only Sq's.
+        assert_eq!(names(&map, "src.methods"), ["area"]);
+        assert_eq!(member(&map, "src.methods", "area", "owner"), "Sq");
+    }
+
+    #[cfg(feature = "lang-python")]
+    #[test]
+    fn python_protocol_and_abc_members() {
+        let map = collections(
+            "python",
+            "from typing import Protocol\nfrom abc import ABC, abstractmethod\nclass Shape(Protocol):\n    def area(self) -> float: ...\n    def name(self) -> str:\n        return \"x\"\nclass Base(ABC):\n    @abstractmethod\n    def run(self, n: int) -> None:\n        \"\"\"Doc.\"\"\"\n    def helper(self):\n        return 1\n",
+        );
+        assert_eq!(names(&map, "src.Shape.methods"), ["area", "name"]);
+        assert_eq!(
+            member(&map, "src.Shape.methods", "area", "required"),
+            "required"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "area", "decl"),
+            "def area(self) -> float"
+        );
+        // A protocol method with a real body is provided, not required — and
+        // is a concrete method too.
+        assert_eq!(
+            member(&map, "src.Shape.methods", "name", "required"),
+            "<absent>"
+        );
+        assert_eq!(names(&map, "src.methods"), ["name", "helper"]);
+        assert_eq!(
+            member(&map, "src.Base.methods", "run", "required"),
+            "required"
+        );
+        assert_eq!(
+            member(&map, "src.Base.methods", "run", "decl"),
+            "def run(self, n: int) -> None"
+        );
+        assert_eq!(
+            member(&map, "src.Base.methods", "helper", "decl"),
+            "def helper(self)"
+        );
+    }
+
+    #[cfg(feature = "lang-go")]
+    #[test]
+    fn go_interface_members() {
+        let map = collections(
+            "go",
+            "package p\ntype Shape interface {\n\tArea() float64\n\tScale(f float64) (Shape, error)\n}\ntype Sq struct{}\nfunc (q *Sq) Area() float64 { return 0 }\n",
+        );
+        assert_eq!(names(&map, "src.Shape.methods"), ["Area", "Scale"]);
+        assert_eq!(
+            member(&map, "src.Shape.methods", "Scale", "decl"),
+            "Scale(f float64) (Shape, error)"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "Scale", "required"),
+            "required"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "Scale", "ret"),
+            "(Shape, error)"
+        );
+        assert_eq!(names(&map, "src.methods"), ["Area"]);
+    }
+
+    #[cfg(feature = "lang-typescript")]
+    #[test]
+    fn typescript_interface_and_abstract_members() {
+        let map = collections(
+            "typescript",
+            "interface Shape {\n  area(): number;\n  name?(): string;\n  size: number;\n}\nabstract class Base {\n  abstract run(n: number): void;\n  go(): void {}\n}\n",
+        );
+        assert_eq!(names(&map, "src.Shape.methods"), ["area", "name"]);
+        assert_eq!(
+            member(&map, "src.Shape.methods", "area", "required"),
+            "required"
+        );
+        // An optional member is not required; its `?` is dropped from `decl`.
+        assert_eq!(
+            member(&map, "src.Shape.methods", "name", "required"),
+            "<absent>"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "name", "decl"),
+            "name(): string"
+        );
+        assert_eq!(names(&map, "src.Base.methods"), ["run", "go"]);
+        assert_eq!(
+            member(&map, "src.Base.methods", "run", "decl"),
+            "run(n: number): void"
+        );
+        assert_eq!(
+            member(&map, "src.Base.methods", "run", "required"),
+            "required"
+        );
+        assert_eq!(names(&map, "src.methods"), ["go"]);
+    }
+
+    #[cfg(feature = "lang-cpp")]
+    #[test]
+    fn cpp_virtual_members() {
+        let map = collections(
+            "cpp",
+            "class Shape {\npublic:\n    virtual ~Shape() = default;\n    virtual double area() const = 0;\n    virtual std::string name() const { return \"\"; }\n    int plain();\n};\n",
+        );
+        // Declaration order; a pure virtual is required and not a concrete
+        // method, an ordinary virtual is both.
+        assert_eq!(names(&map, "src.Shape.methods"), ["area", "name", "plain"]);
+        assert_eq!(
+            member(&map, "src.Shape.methods", "area", "decl"),
+            "double area() const"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "area", "required"),
+            "required"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "name", "decl"),
+            "std::string name() const"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "name", "required"),
+            "<absent>"
+        );
+        assert_eq!(
+            member(&map, "src.Shape.methods", "plain", "decl"),
+            "<absent>"
+        );
+        assert_eq!(names(&map, "src.methods"), ["name", "plain"]);
     }
 }
