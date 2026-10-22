@@ -373,8 +373,10 @@ returns one action per test trigger that still has untested items. Given a
 
 The edit is plain text appended at the end of the document, so applying it
 needs no snippet support. "Missing" means: passes the trigger's default
-filter and the buffer never mentions the name as a whole identifier. Add a
-function to the source, request the action again, and you get just its test.
+filter and carries no `tested` mark — the same member `tfn*@src.fns?!tested`
+filters on, set when the buffer mentions the name as a whole identifier — so
+the action and the abbreviation always agree. Add a function to the source,
+request the action again, and you get just its test.
 
 A document with no source set gets the action too when its language keeps
 tests in the source file (Rust, whose `tfile` targets the source) or it
