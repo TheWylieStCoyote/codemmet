@@ -273,6 +273,8 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `owner` | the type a method belongs to | `src.methods` |
 | `trait` | the trait an `impl Trait for Type` method implements | Rust |
 | `ctor` | `ctor` on constructors | Rust `new`, Python `__init__`, C++ `Point()`, JS/TS `constructor` |
+| `signature` | the parameter **types** only, names, defaults, and spacing normalized away (`const std::string&`) — what tells overloads apart; a prototype or in-class declaration merges with its definition when they match | C, C++ |
+| `overload` | the 1-based ordinal of a function within its overload set (`1`, `2`, …), absent for a function with one definition, so `Works${value.overload}` names each overload's test distinctly | C++ |
 | `tested` | `tested` on items the editor's tests already mention as a whole identifier (the test file with a source set; a source file's own test region — Rust from `#[cfg(test)]`, Python from the first `def test_…`/`class Test…`) | set by the LSP, never by the CLI |
 | `kind` | `struct`, `enum`, `class`, `trait`, `interface`, `union`, `type` | `src.types` |
 | `test` | `test` on test functions | Rust `#[test]`/`#[*::test]`, Python `test_*`, Go `Test*` |

@@ -101,6 +101,8 @@ Member vocabulary (all optional unless noted):
 | `vis` | normalized visibility: `public`, `private`, `protected` (always) | `public` |
 | `async` | present on async functions, display-ready | `async ` |
 | `static` | present on methods without a receiver / marked static | `static` |
+| `signature` | C/C++: parameter types only (normalized); overloads differ here, a declaration and its definition do not | `double, double` |
+| `overload` | C++: 1-based ordinal within an overload set, absent otherwise (`${value.overload}` renders empty) | `2` |
 | `tested` | editor-only: present when the tests already mention the item (whole test file with a source set; a source file's own test region: Rust `#[cfg(test)]`, Python `def test_…`/`class Test…`) | `tested` |
 | `receiver` | the receiver as written, when there is one | `&mut self`, `self`, `cls` |
 | `owner` | the type a method belongs to | `Point` |
@@ -318,8 +320,12 @@ depend on earlier ones.
   `collections`; every function item has a `params` sub-collection and a
   nested repeat reaches it with `*@outer.params`. A present item with no such
   sub-collection yields zero copies.
-- **Overloads** (C++) and same-named functions in different modules: keyed by
-  bare name today; a later `signature` member may disambiguate.
+- ~~**Overloads** (C++)~~ *(done)*: each overload is its own item — the C/C++
+  walker records a `signature` of parameter types, a declaration merges with
+  its definition only when it matches, and every member of an overload set
+  carries an `overload` ordinal the C++ test bodies append to the test name
+  (`Works1`, `Works2`). Same-named functions in different namespaces are
+  still keyed by bare name (they carry `module`).
 - **Nested functions / closures**: excluded from `src.fns` (only functions
   whose enclosing containers are module-like count).
 - **Test framework selection** per project (decision 8).

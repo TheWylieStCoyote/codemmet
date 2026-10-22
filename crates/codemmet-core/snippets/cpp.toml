@@ -255,8 +255,11 @@ description = "GoogleTest TEST calling a function (data-driven: tfn*@src.fns, pu
 filter = "vis=public?!test"
 requires = ["<gtest/gtest.h>"]
 scope = "fn-body"
+# `${value.overload}` is the overload's ordinal (`1`, `2`, …) and empty for a
+# function with one definition, so overloads get distinct test names
+# (`Works1`, `Works2`) and everything else stays `Works`.
 body = '''
-TEST(${value|pascal}Test, Works) {
+TEST(${value|pascal}Test, Works${value.overload}) {
 	EXPECT_EQ(${value}(${value.args}), ${1:expected});
 }
 '''
@@ -267,16 +270,27 @@ filter = "vis=public"
 requires = ["<gtest/gtest.h>"]
 scope = "fn-body"
 body = '''
-TEST(${value.owner}Test, ${value|pascal}) {
+TEST(${value.owner}Test, ${value|pascal}${value.overload}) {
 	${value.owner} subject$1;
 	EXPECT_EQ(subject.${value}(${value.args}), ${2:expected});
+}
+'''
+
+# A default constructor is `Point subject;` — `Point subject();` would
+# declare a function.
+[[snippets.tmeth.variants]]
+when = "ctor?!params"
+body = '''
+TEST(${value.owner}Test, Constructs${value.overload}) {
+	${value.owner} subject;
+	$0
 }
 '''
 
 [[snippets.tmeth.variants]]
 when = "ctor"
 body = '''
-TEST(${value.owner}Test, Constructs) {
+TEST(${value.owner}Test, Constructs${value.overload}) {
 	${value.owner} subject(${value.args});
 	$0
 }
@@ -285,7 +299,7 @@ TEST(${value.owner}Test, Constructs) {
 [[snippets.tmeth.variants]]
 when = "static"
 body = '''
-TEST(${value.owner}Test, ${value|pascal}) {
+TEST(${value.owner}Test, ${value|pascal}${value.overload}) {
 	EXPECT_EQ(${value.owner}::${value}(${value.args}), ${1:expected});
 }
 '''

@@ -1737,3 +1737,31 @@ fn scaffold_tfile_js_imports_names_and_skips_absent_methods() {
         "import {\n  area,\n} from \"./geometry\";\n\ntest(\"area works\", () => {\n  expect(area(w, h)).toBe(expected);\n});"
     );
 }
+
+/// C++ overloads are separate items with an `overload` ordinal, so the
+/// `GoogleTest` bodies give each a distinct name; a default constructor is
+/// constructed without the vexing-parse parentheses.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn cpp_overloads_get_distinct_test_names() {
+    let dir = scratch_dir("cpp-overloads");
+    let src = dir.join("shapes.cpp");
+    std::fs::write(
+        &src,
+        "double area(double w, double h) { return w * h; }\ndouble area(int w, int h) { return w * h; }\nclass Point {\npublic:\n    Point();\n    Point(double x);\n    double length() const;\n};\n",
+    )
+    .expect("write");
+    let out = bin()
+        .args(["expand", "--lang", "cpp", "--source"])
+        .arg(&src)
+        .arg("tfn*@src.fns+tmeth*@src.methods")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "TEST(AreaTest, Works1) {\n    EXPECT_EQ(area(w, h), expected);\n}\nTEST(AreaTest, Works2) {\n    EXPECT_EQ(area(w, h), expected);\n}\nTEST(PointTest, Constructs1) {\n    Point subject;\n    \n}\nTEST(PointTest, Constructs2) {\n    Point subject(x);\n    \n}\nTEST(PointTest, Length) {\n    Point subject;\n    EXPECT_EQ(subject.length(), expected);\n}\n"
+    );
+}

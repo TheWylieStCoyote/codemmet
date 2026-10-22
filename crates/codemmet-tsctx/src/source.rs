@@ -99,6 +99,9 @@ struct Func {
     /// One item per parameter (value = name, members `type`/`default`), the
     /// `params` sub-collection a nested `*@outer.params` repeats over.
     param_items: Vec<Item>,
+    /// The parameter *types* only, for languages with overloading (C/C++):
+    /// the `signature` member, and what tells two same-named functions apart.
+    signature: Vec<String>,
     ret: Option<String>,
     vis: Option<Vis>,
     is_async: bool,
@@ -128,6 +131,9 @@ impl Func {
         }
         if !self.args.is_empty() {
             m.insert("args".to_owned(), self.args.join(", "));
+        }
+        if !self.signature.is_empty() {
+            m.insert("signature".to_owned(), self.signature.join(", "));
         }
         if let Some(ret) = self.ret.filter(|r| !r.is_empty()) {
             m.insert("ret".to_owned(), ret);
@@ -217,7 +223,7 @@ struct Defs {
 
 impl Defs {
     fn push_fn(&mut self, func: Func) {
-        upsert(&mut self.fns, func.into_item(), |a, b| a.value == b.value);
+        upsert(&mut self.fns, func.into_item(), same_fn);
     }
 
     fn push_type(&mut self, item: Item) {
@@ -226,11 +232,19 @@ impl Defs {
 
     fn push_method(&mut self, func: Func) {
         upsert(&mut self.methods, func.into_item(), |a, b| {
-            a.value == b.value && a.members.get("owner") == b.members.get("owner")
+            same_fn(a, b) && a.members.get("owner") == b.members.get("owner")
         });
     }
 
-    fn into_map(self, map: &mut BTreeMap<String, Collection>) {
+    fn into_map(mut self, map: &mut BTreeMap<String, Collection>) {
+        number_overloads(&mut self.fns, |item| item.value.clone());
+        number_overloads(&mut self.methods, |item| {
+            format!(
+                "{}::{}",
+                item.members.get("owner").map_or("", String::as_str),
+                item.value
+            )
+        });
         let mut by_owner: BTreeMap<String, Vec<Item>> = BTreeMap::new();
         for item in &self.methods {
             if let Some(owner) = item.members.get("owner") {
@@ -256,6 +270,36 @@ impl Defs {
     }
 }
 
+/// Whether two function items are the same function: the same name and — in
+/// a language with overloading, where the C/C++ walker records a `signature`
+/// of parameter types — the same signature, so a prototype or in-class
+/// declaration merges with its definition while `area(int, int)` and
+/// `area(double, double)` stay two functions.
+fn same_fn(a: &Item, b: &Item) -> bool {
+    a.value == b.value && a.members.get("signature") == b.members.get("signature")
+}
+
+/// Give every member of an overload set (two or more items with the same
+/// `key`) an `overload` member — its 1-based ordinal in source order — so a
+/// template can tell the copies apart (`Works${value.overload}`); an
+/// un-overloaded function has none, and `${value.overload}` renders empty.
+fn number_overloads(items: &mut [Item], key: impl Fn(&Item) -> String) {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for item in items.iter() {
+        *counts.entry(key(item)).or_default() += 1;
+    }
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for item in items.iter_mut() {
+        let k = key(item);
+        if counts.get(&k).copied().unwrap_or(0) < 2 {
+            continue;
+        }
+        let n = seen.entry(k).or_default();
+        *n += 1;
+        item.members.insert("overload".to_owned(), n.to_string());
+    }
+}
+
 /// Insert `item`, or merge it into the entry `same` already matches: a later
 /// definition fills in members its earlier declaration lacked, but the first
 /// declaration keeps its position and its own members (a C++ in-class
@@ -265,6 +309,11 @@ fn upsert(list: &mut Vec<Item>, item: Item, same: impl Fn(&Item, &Item) -> bool)
     if let Some(existing) = list.iter_mut().find(|e| same(e, &item)) {
         for (key, value) in item.members {
             existing.members.entry(key).or_insert(value);
+        }
+        // A prototype with unnamed parameters has no `params` sub-collection;
+        // its definition does.
+        for (key, value) in item.collections {
+            existing.collections.entry(key).or_insert(value);
         }
     } else {
         list.push(item);
@@ -700,6 +749,33 @@ mod c {
         }
     }
 
+    /// The declared type of a parameter, as written minus its name and any
+    /// default value (`const std::string &name = ""` → `const std::string &`),
+    /// with whitespace collapsed so a prototype and its definition compare
+    /// equal however they were spaced.
+    fn param_type(param: Node<'_>, ident: Option<Node<'_>>, text: &str) -> String {
+        let base = param.start_byte();
+        let raw = node_text(param, text);
+        let end = param
+            .child_by_field_name("default_value")
+            .map_or(raw.len(), |d| d.start_byte() - base);
+        let mut ty = raw[..end].to_owned();
+        if let Some(ident) = ident {
+            let (from, to) = (ident.start_byte() - base, ident.end_byte() - base);
+            if to <= end {
+                ty = format!("{}{}", &raw[..from], &raw[to..end]);
+            }
+        }
+        ty.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace(" *", "*")
+            .replace(" &", "&")
+            .trim_end_matches('=')
+            .trim()
+            .to_owned()
+    }
+
     /// A function from a definition, prototype, or member declaration — or
     /// `None` when the node's declarator is not a function (a plain field).
     fn function(node: Node<'_>, text: &str, access: Vis) -> Option<Func> {
@@ -751,18 +827,27 @@ mod c {
                         .child_by_field_name("declarator")
                         .and_then(|d| innermost_ident(d, &["identifier"]));
                     match ident {
-                        Some(ident) => func.param(
-                            node_text(param, text),
-                            node_text(ident, text),
-                            field_text(param, "type", text),
-                            field_text(param, "default_value", text),
-                        ),
+                        Some(ident) => {
+                            func.signature.push(param_type(param, Some(ident), text));
+                            func.param(
+                                node_text(param, text),
+                                node_text(ident, text),
+                                field_text(param, "type", text),
+                                field_text(param, "default_value", text),
+                            );
+                        }
                         // `(void)` and unnamed parameters contribute no argument.
                         None if field_text(param, "type", text) == Some("void") => {}
-                        None => func.params.push(node_text(param, text).to_owned()),
+                        None => {
+                            func.signature.push(param_type(param, None, text));
+                            func.params.push(node_text(param, text).to_owned());
+                        }
                     }
                 }
-                "variadic_parameter" => func.params.push("...".to_owned()),
+                "variadic_parameter" => {
+                    func.signature.push("...".to_owned());
+                    func.params.push("...".to_owned());
+                }
                 _ => {}
             }
         }
@@ -1290,6 +1375,58 @@ template <typename T> T ident(T v) { return v; }
         );
         assert_eq!(names(&map, "src.Vec2.methods"), ["dot"]);
         assert_eq!(member(&map, "src.Vec2.methods", "dot", "vis"), "public");
+    }
+
+    /// C++ overloads are separate functions: a declaration merges with its
+    /// definition by parameter-type `signature` (names, defaults, and spacing
+    /// aside), two signatures stay two items, and every member of an overload
+    /// set gets a 1-based `overload` ordinal.
+    #[test]
+    fn cpp_overloads_are_separate_items_with_ordinals() {
+        let map = collections(
+            "cpp",
+            r#"
+double area(double w, double h);
+double area(int, int);
+double area(double w, double h) { return w * h; }
+double area(int w, int h) { return w * h; }
+std::string label(const std::string &name = "x");
+std::string label(const std::string& name) { return name; }
+class Point {
+public:
+    Point();
+    Point(double x);
+    void scale(double k);
+    void scale(double kx, double ky);
+};
+Point::Point(double x) {}
+void Point::scale(double kx, double ky) {}
+"#,
+        );
+        assert_eq!(names(&map, "src.fns"), ["area", "area", "label"]);
+        let fns = &map["src.fns"].items;
+        assert_eq!(fns[0].members["signature"], "double, double");
+        assert_eq!(fns[0].members["overload"], "1");
+        assert_eq!(fns[1].members["signature"], "int, int");
+        assert_eq!(fns[1].members["overload"], "2");
+        // The unnamed prototype merged with its definition: args and the
+        // params sub-collection come from the definition.
+        assert_eq!(fns[1].members["args"], "w, h");
+        assert_eq!(fns[1].collections["params"].items.len(), 2);
+        // Spacing and a default value do not split a declaration from its
+        // definition; a single definition carries no `overload`.
+        assert_eq!(fns[2].members["signature"], "const std::string&");
+        assert!(!fns[2].members.contains_key("overload"));
+        assert_eq!(
+            names(&map, "src.Point.methods"),
+            ["Point", "Point", "scale", "scale"]
+        );
+        let methods = &map["src.Point.methods"].items;
+        assert!(!methods[0].members.contains_key("signature"));
+        assert_eq!(methods[0].members["overload"], "1");
+        assert_eq!(methods[1].members["overload"], "2");
+        assert_eq!(methods[3].members["signature"], "double, double");
+        assert_eq!(methods[3].members["args"], "kx, ky");
     }
 
     #[cfg(feature = "lang-typescript")]

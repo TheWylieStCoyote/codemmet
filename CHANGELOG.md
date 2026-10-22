@@ -94,6 +94,14 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **C++ overloads are separate functions.** The C/C++ walker records a
+  `signature` member (parameter types, normalized), merges a prototype or
+  in-class declaration with its definition only when the signatures match,
+  and gives every member of an overload set an `overload` ordinal. The C++
+  `tfn`/`tmeth` bodies append it to the test name (`Works1`, `Works2`,
+  `Constructs1`), so overloads no longer collapse into one item or collide
+  on a name; a default constructor renders `Point subject;` instead of the
+  vexing-parse `Point subject();`.
 - **No phantom test for a source without classes.** `src.fns`, `src.types`,
   and `src.methods` now always exist for a source file (empty when it has
   none), and a repeat over a present-but-empty collection renders zero

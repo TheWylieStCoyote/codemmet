@@ -844,9 +844,15 @@ TEST(PointTest, Length) {
 One test per method of `Point` (`src.Point.methods`; `src.methods` is every
 type's methods with an `owner` member). The default filter keeps public
 members. The constructor takes the `when = "ctor"` **variant** (construct a
-`subject`), a `static` member the `when = "static"` one (`Point::origin(..)`
-on the class); instance methods take the default body. `?all` adds protected
-and private members.
+`subject`; a default constructor as `Point subject;`), a `static` member the
+`when = "static"` one (`Point::origin(..)` on the class); instance methods
+take the default body. `?all` adds protected and private members.
+
+Overloads are separate items: two `scale` methods yield `TEST(PointTest,
+Scale1)` and `TEST(PointTest, Scale2)`, each calling its own parameter list,
+because `${value.overload}` is the overload's ordinal and empty for a method
+with one definition. A declaration and its out-of-class definition stay one
+item: they are matched by parameter-type `signature`, not just by name.
 
 ### `todo`
 
