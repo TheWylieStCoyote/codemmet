@@ -78,7 +78,10 @@ follows [Semantic Versioning](https://semver.org/).
   mention as a whole identifier, so `tfn*@src.fns?!tested` (typed, previewed,
   or completed) writes tests only for the functions without one — the same
   rule the code action uses. A test file with a source counts all of itself;
-  a Rust file that is its own source counts only from `#[cfg(test)]`.
+  a file that is its own source counts only its test region — Rust from
+  `#[cfg(test)]`, Python from the first `def test_…` / `async def test_…` /
+  `class Test…` — and a Python module with such tests gets the same-file
+  "Add N missing tests" action, appended bare.
 - **Guide: generating tests from code** (`docs/testing.md`) — the whole
   flow on one example with real outputs: `vars`, `tfn`/`tmeth`/`tfile`,
   filters, `:CodemmetSource`, the `codemmet.setSource` / `codemmet.context` /

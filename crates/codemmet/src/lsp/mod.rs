@@ -585,10 +585,12 @@ impl Server {
     ///
     /// Without one, the document is its own source when its language keeps
     /// tests in the source file (the builtin `tfile` targets `source`, as in
-    /// Rust). Then its own definitions feed the collections, only the test
-    /// region (from the first `#[cfg(test)]`) counts as mentioning a name, and
-    /// a single action adds the tests inside the existing test module when its
-    /// closing brace ends the file, or in a fresh `tmod` module after the code.
+    /// Rust) or it already holds tests (Python `def test_…` / `class Test…`).
+    /// Then its own definitions feed the collections, only the test region
+    /// ([`test_region`]) counts as mentioning a name, and a single action adds
+    /// the tests inside the existing test module when its closing brace ends
+    /// the file, or after the code (in a fresh `tmod` module when the language
+    /// has one).
     fn missing_test_actions(
         &mut self,
         uri: &Uri,
@@ -607,7 +609,10 @@ impl Server {
             let same = doc_path.as_deref() == Some(path.as_path());
             (&source.collections, source.vars.clone(), path, same)
         } else {
-            if !tests_live_in_source(lang) {
+            // Its own test file when the language keeps tests beside the
+            // code (Rust) or the file already holds tests (Python's
+            // `def test_…` / `class Test…`).
+            if !tests_live_in_source(lang) && test_region(lang.profile.id, &doc.text).is_none() {
                 return Vec::new();
             }
             let Some(path) = doc_path else {
@@ -661,7 +666,8 @@ impl Server {
             let title = format!("Add {count} missing test{plural} to {file}");
             let closing = region.and_then(|_| closing_brace_line(&doc.text));
             let indent = lang.profile.default_indent.as_str();
-            let edit = same_file_edit(&doc.text, closing, &indent, &abbr, |abbr| {
+            let wrap = lang.set.get("tmod").is_some();
+            let edit = same_file_edit(&doc.text, closing, &indent, &abbr, wrap, |abbr| {
                 expand(abbr, &ctx)
             });
             if let Some((at, new_text)) = edit {
@@ -906,13 +912,15 @@ fn missing_parts<'a>(
 
 /// The edit that adds tests to a source file: `(byte offset, text)`. When
 /// `closing` is the line of the brace that ends a trailing test module, the
-/// rendered `abbr` goes inside it, one `indent` level deeper; otherwise a
-/// fresh `tmod` module wrapping `abbr` goes after the code.
+/// rendered `abbr` goes inside it, one `indent` level deeper; otherwise the
+/// tests go after the code, inside a fresh `tmod` module when the language
+/// has one (`wrap`) and bare otherwise (Python).
 fn same_file_edit(
     text: &str,
     closing: Option<usize>,
     indent: &str,
     abbr: &str,
+    wrap: bool,
     expand: impl Fn(&str) -> Option<String>,
 ) -> Option<(usize, String)> {
     if let Some(at) = closing {
@@ -929,7 +937,11 @@ fn same_file_edit(
             .join("\n");
         return Some((at, format!("\n{indented}\n")));
     }
-    let body = expand(&format!("tmod>{abbr}"))?;
+    let body = if wrap {
+        expand(&format!("tmod>{abbr}"))?
+    } else {
+        expand(abbr)?
+    };
     let lead = if text.is_empty() {
         ""
     } else if text.ends_with('\n') {

@@ -165,16 +165,32 @@ fn go_package(path: &Path, text: &str) -> String {
 }
 
 /// The part of `text` that holds the tests, for a language that keeps tests
-/// in the source file: Rust, from the first `#[cfg(test)]`.
+/// in the source file.
 ///
-/// `None` for a language whose tests live in sibling files, and for a Rust
-/// file without a test module. Used to decide which items a source file
-/// already tests ([`crate::context::mark_tested`]) without counting the code
-/// itself.
+/// Rust: from the first `#[cfg(test)]`. Python: from the first line that
+/// starts a test the way pytest and `unittest` collect them — `def test_…`,
+/// `async def test_…`, or `class Test…` (at any indentation). `None` for a
+/// language whose tests live in sibling files, and for a file without any of
+/// these. Used to decide which items a source file already tests
+/// ([`crate::context::mark_tested`]) without counting the code itself.
 #[must_use]
 pub fn test_region<'a>(language: &str, text: &'a str) -> Option<&'a str> {
     match language {
         "rust" => text.find("#[cfg(test)]").map(|at| &text[at..]),
+        "python" => {
+            let mut at = 0;
+            for line in text.split_inclusive('\n') {
+                let head = line.trim_start();
+                if ["def test_", "async def test_", "class Test"]
+                    .iter()
+                    .any(|start| head.starts_with(start))
+                {
+                    return Some(&text[at..]);
+                }
+                at += line.len();
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -191,7 +207,34 @@ mod tests {
             Some("#[cfg(test)]\nmod tests {\n    fn t() { a(); }\n}\n")
         );
         assert_eq!(test_region("rust", "fn a() {}\n"), None);
-        assert_eq!(test_region("python", "def test_a(): a()\n"), None);
+        assert_eq!(test_region("go", "func TestA(t *testing.T) {}\n"), None);
+    }
+
+    #[test]
+    fn python_test_region_starts_at_the_first_test_function_or_class() {
+        // A pytest-style function.
+        let text =
+            "def area(w, h):\n    return w * h\n\ndef test_area():\n    assert area(2, 3) == 6\n";
+        assert_eq!(
+            test_region("python", text),
+            Some("def test_area():\n    assert area(2, 3) == 6\n")
+        );
+        // A test class (pytest `Test*`, or a unittest.TestCase), methods included.
+        let text = "def area(w, h):\n    return w * h\n\nclass TestArea(unittest.TestCase):\n    def test_area(self):\n        self.assertEqual(area(2, 3), 6)\n";
+        assert_eq!(
+            test_region("python", text).map(|r| r.lines().next()),
+            Some(Some("class TestArea(unittest.TestCase):"))
+        );
+        // Async tests, and indentation, count; `def tester` does not.
+        assert_eq!(
+            test_region("python", "class X:\n    async def test_a(self): ...\n"),
+            Some("    async def test_a(self): ...\n")
+        );
+        assert_eq!(test_region("python", "def tester(): ...\n"), None);
+        assert_eq!(
+            test_region("python", "def area(w, h):\n    return w * h\n"),
+            None
+        );
     }
 
     fn module_of(language: &str, path: &str, text: &str) -> String {

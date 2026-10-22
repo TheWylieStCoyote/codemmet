@@ -273,7 +273,7 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `owner` | the type a method belongs to | `src.methods` |
 | `trait` | the trait an `impl Trait for Type` method implements | Rust |
 | `ctor` | `ctor` on constructors | Rust `new`, Python `__init__`, C++ `Point()`, JS/TS `constructor` |
-| `tested` | `tested` on items the editor's tests already mention as a whole identifier (the test file with a source set; a source file's own `#[cfg(test)]` region) | set by the LSP, never by the CLI |
+| `tested` | `tested` on items the editor's tests already mention as a whole identifier (the test file with a source set; a source file's own test region — Rust from `#[cfg(test)]`, Python from the first `def test_…`/`class Test…`) | set by the LSP, never by the CLI |
 | `kind` | `struct`, `enum`, `class`, `trait`, `interface`, `union`, `type` | `src.types` |
 | `test` | `test` on test functions | Rust `#[test]`/`#[*::test]`, Python `test_*`, Go `Test*` |
 | `module` | the enclosing module / namespace path | Rust `mod`, C++ `namespace`, TS `namespace` |
@@ -527,13 +527,16 @@ every language the `tfn`/`tmeth` triggers ship for; the user packs that
 override those triggers (and their `filter`) are honored.
 
 A file can also be its own source. With no source set, a document whose
-language keeps tests in the source file — the builtin `tfile` targets
-`source`, which today means Rust — offers one combined action, **"Add N
-missing tests to `geometry.rs`"**, for its own public functions and methods.
-The code's own definitions and calls do not count as tests: only mentions
-from the first `#[cfg(test)]` on do. Without a test module the edit appends a
-fresh `tmod` module after the code; when a `mod tests { … }` closes the file,
-the new tests are inserted before its closing brace, indented one level.
+language keeps tests in the source file (Rust: the builtin `tfile` targets
+`source`), or that already holds tests (Python: a `def test_…` or
+`class Test…`), offers one combined action, **"Add N missing tests to
+`geometry.rs`"**, for its own public functions and methods. The code's own
+definitions and calls do not count as tests: only mentions from the test
+region on do — Rust from the first `#[cfg(test)]`, Python from the first
+`def test_…` / `async def test_…` / `class Test…`. In Rust, without a test
+module the edit appends a fresh `tmod` module after the code; when a
+`mod tests { … }` closes the file, the new tests are inserted before its
+closing brace, indented one level. In Python the tests are appended bare.
 
 ## See also
 

@@ -288,7 +288,9 @@ and press `<A-e>`: a `#[cfg(test)] mod tests { use super::*; … }` with one
 test per public function and method appears as a live snippet, cursor on the
 first `expected`. Later, inside that module, `tfn*@src.fns?vis=public?!tested`
 adds tests for the public functions that still have none: `tested` is set on
-every item a name in the test region (from `#[cfg(test)]` on) mentions. `:CodemmetScaffold tfile` does the same without typing the
+every item a name in the test region (from `#[cfg(test)]` on) mentions.
+
+`:CodemmetScaffold tfile` does the same without typing the
 abbreviation (it is what Rust's `tfile` expands to; with no source set, the
 scaffold treats the current file as its own), and the code-action menu
 offers **Add N missing tests to geometry.rs**: in a file without a test module
@@ -375,11 +377,21 @@ filter and the buffer never mentions the name as a whole identifier. Add a
 function to the source, request the action again, and you get just its test.
 
 A document with no source set gets the action too when its language keeps
-tests in the source file (Rust, whose `tfile` targets the source): the title
+tests in the source file (Rust, whose `tfile` targets the source) or it
+already holds tests (Python, from a `def test_…` or `class Test…`): the title
 is then **Add N missing tests to `<file>`**, one action for functions and
-methods together, wrapped in a `tmod` module when the file has none and
-inserted before the closing brace of a trailing `mod tests` otherwise. Only
-mentions from the first `#[cfg(test)]` on count as tests.
+methods together. In Rust it is wrapped in a `tmod` module when the file has
+none and inserted before the closing brace of a trailing `mod tests`
+otherwise; in Python the tests are appended bare. Only mentions from the
+test region on count as tests: Rust from the first `#[cfg(test)]`, Python
+from the first `def test_…` / `async def test_…` / `class Test…`.
+
+**Tests at the bottom of a Python module.** The same applies to a `.py` file
+that keeps its tests after the code: `tfn*@src.fns?!tested` below the first
+`def test_…` or `class Test…` adds tests only for the functions none of them
+mention, and the code action offers the same set. A module without any test
+yet is not its own test file — nothing is `tested`, so `tfn*@src.fns` writes
+one test per public function, as usual.
 
 ## 6. Shaping the tests to your conventions
 

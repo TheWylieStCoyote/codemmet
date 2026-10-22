@@ -1603,3 +1603,60 @@ fn tested_member_marks_functions_the_tests_mention() {
     );
     client.shutdown();
 }
+
+/// Python keeps tests in `test_*.py` files, but a module with tests at the
+/// bottom is its own test file: `tested` counts mentions from the first
+/// `def test_…` / `class Test…` on, and the action appends bare tests.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn python_same_file_tests_start_at_the_first_test_function_or_class() {
+    let (mut client, _) = LspClient::start("py-same-file", &["utf-8"], &json!({}));
+    let py = "file:///test/geometry.py";
+    // `perimeter` calls `area` in the code; `TestArea` tests `area` only.
+    client.open(
+        py,
+        "python",
+        "def area(w, h):\n    return w * h\n\ndef perimeter(w, h):\n    return 2 * area(w, h)\n\nclass TestArea:\n    def test_area(self):\n        assert area(2, 3) == 6\n\ntfn*@src.fns?!tested\n",
+    );
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.expand",
+            "arguments": [{ "uri": py, "position": { "line": 10, "character": 20 } }],
+        }),
+    );
+    let snippet = result["snippet"].as_str().expect("snippet");
+    assert!(
+        snippet.contains("def test_perimeter():"),
+        "snippet: {snippet}"
+    );
+    assert!(!snippet.contains("def test_area"), "snippet: {snippet}");
+
+    // The same mark drives the code action; no `tmod` in Python, so the
+    // tests are appended bare.
+    client.open(
+        py,
+        "python",
+        "def area(w, h):\n    return w * h\n\ndef perimeter(w, h):\n    return 2 * area(w, h)\n\ndef test_area():\n    assert area(2, 3) == 6\n",
+    );
+    let result = client.code_action(py, 0, 0);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 1, "actions: {result}");
+    assert_eq!(
+        actions[0]["title"],
+        json!("Add 1 missing test to geometry.py")
+    );
+    let edit = &actions[0]["edit"]["changes"][py][0];
+    assert_eq!(edit["range"]["start"]["line"], json!(8));
+    assert_eq!(
+        edit["newText"],
+        json!(
+            "\ndef test_perimeter():\n    result = perimeter(w, h)\n    assert result == expected\n"
+        )
+    );
+
+    // A Python file without tests is not its own test file.
+    client.open(py, "python", "def area(w, h):\n    return w * h\n");
+    assert_eq!(client.code_action(py, 0, 0), json!([]));
+    client.shutdown();
+}

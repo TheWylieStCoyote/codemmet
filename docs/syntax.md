@@ -189,9 +189,10 @@ on every `src.*` item whose name the tests already mention, so
 `tfn*@src.fns?!tested` writes tests only for the functions that have none
 (and `?vis=public?!tested` keeps the default's public-only rule with it). In
 a test file with a source set, the whole file counts as tests; in a file
-that is its own source, only its test region does (Rust: from the first
-`#[cfg(test)]`). The CLI has no test buffer, so there nothing is `tested`
-and `?!tested` keeps everything.
+that is its own source, only its test region does: Rust from the first
+`#[cfg(test)]`, Python from the first `def test_…` / `async def test_…` /
+`class Test…` (the way pytest and `unittest` collect). The CLI has no test
+buffer, so there nothing is `tested` and `?!tested` keeps everything.
 
 #### The repetition index `${i}`
 
