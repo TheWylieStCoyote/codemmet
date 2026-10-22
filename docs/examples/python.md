@@ -786,7 +786,7 @@ The `>` child operator nests an equality assertion inside the test.
 
 ### `tfile`
 
-Create test_<source>.py beside the --source file with a pytest per public fn/method (multi-file).
+Write test_<source>.py beside the --source file with a pytest per public fn/method; re-running adds the missing ones (multi-file).
 
 ```sh
 codemmet scaffold --lang python --source geometry.py tfile --write
@@ -794,7 +794,9 @@ codemmet scaffold --lang python --source geometry.py tfile --write
 
 With the `geometry.py` from [`tfn`](#tfn), this creates `test_geometry.py` next to the source, starting with `from geometry import *`, followed by
 the `tfn` tests for its public functions and the `tmeth` tests for its methods
-— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
+— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. When the file
+already exists, the tests it mentions are left out and the rest appended, so
+re-running after adding a function adds just its test. Run without
 `--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
 the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
 `on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.

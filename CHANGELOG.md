@@ -8,6 +8,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`scaffold` skips what the target already tests.** When the primary
+  target file exists, `codemmet scaffold` marks the `src.*` items its tests
+  mention (`tested`; a source file counts only its test region) and leaves
+  them out before rendering, so re-running `tfile` adds only the missing
+  tests, and a fully tested target produces no entry (`note: … is up to
+  date`) rather than a blank append. `--include-tested` renders everything.
+  The pytest, C, GoogleTest, doctest, and Go `tfile`s now `append` to an
+  existing test file instead of refusing; JS/TS and Unity keep `create`
+  (their header block and runner would duplicate).
 - **unittest `tfile` merges into the existing `TestCase`.** The Python
   `unittest` framework pack's `tfile` injects new test methods into
   `class Test<Stem>(unittest.TestCase)` when the test file already has it,

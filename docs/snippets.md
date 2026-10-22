@@ -818,11 +818,17 @@ write its import line, with the tests themselves coming from a data-driven
 ```toml
 [snippets.tfile.files.test]
 path      = "${src.dir}/test_${src.stem}.py"
-on_exists = "create"
+on_exists = "append"                   # re-running adds the tests still missing
 on_create = "from ${src.module} import *"
 primary   = true
 expands   = "tfn*@src.fns+tmeth*@src.methods"
 ```
+
+When the primary target already exists, `codemmet scaffold` first marks the
+`src.*` items its tests mention (`tested`) and leaves them out, so a `tfile`
+run against an existing test file appends only the tests that are missing,
+and one against a fully tested file adds nothing. `--include-tested` renders
+everything regardless.
 
 ```sh
 codemmet scaffold --lang python --source src/geometry.py tfile --write

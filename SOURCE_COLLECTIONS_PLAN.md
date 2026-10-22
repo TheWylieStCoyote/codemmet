@@ -294,6 +294,12 @@ depend on earlier ones.
 
 ## Refinements made while building
 
+- **`scaffold` is tested-aware**: with an existing primary target, the CLI
+  marks `tested` against the target's text (test region for a source file)
+  and drops those items before rendering — `tfile` catches up instead of
+  duplicating; `--include-tested` opts out. This is the CLI's one `tested`
+  site; `expand` still has no test buffer.
+
 - **`tfile` merges into an existing `mod tests`** (Rust): multi-file pieces
   gain `wrap`; the injector targets a named `mod_item`; a named `into` no
   longer falls back to the last type body. The scaffold and the "add missing

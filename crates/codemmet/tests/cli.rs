@@ -2403,3 +2403,89 @@ fn unittest_tfile_merges_into_the_existing_testcase() {
         "{entry}"
     );
 }
+
+/// A scaffold whose primary target exists leaves out the `src.*` items that
+/// file already tests (its test region, for a source file), so re-running
+/// `tfile` adds only the missing tests; `--include-tested` renders them all;
+/// a fully tested target yields no entry at all.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn scaffold_skips_items_the_target_already_tests() {
+    let dir = scratch_dir("scaffold-skip-tested");
+    // Python: a sibling test file with one of two tests.
+    std::fs::write(
+        dir.join("geometry.py"),
+        "def area(w, h):\n    return w * h\n\ndef perimeter(w, h):\n    return 2 * (w + h)\n",
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("test_geometry.py"),
+        "from geometry import *\n\ndef test_area():\n    assert area(2, 3) == 6\n",
+    )
+    .expect("write");
+    let scaffold = |lang: &str, src: &str, extra: &[&str]| {
+        let out = bin()
+            .args(["scaffold", "--lang", lang, "--json", "--root"])
+            .arg(&dir)
+            .arg("--source")
+            .arg(dir.join(src))
+            .args(extra)
+            .arg("tfile")
+            .arg("--config")
+            .arg(&dir)
+            .output()
+            .expect("binary should run");
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        serde_json::from_str::<serde_json::Value>(stdout(&out).trim()).expect("JSON")
+    };
+    let manifest = scaffold("python", "geometry.py", &[]);
+    assert_eq!(manifest[0]["action"], "append");
+    assert_eq!(
+        manifest[0]["content"],
+        "def test_perimeter():\n    result = perimeter(w, h)\n    assert result == expected"
+    );
+    let all = scaffold("python", "geometry.py", &["--include-tested"]);
+    let content = all[0]["content"].as_str().expect("content");
+    assert!(
+        content.contains("def test_area():") && content.contains("def test_perimeter():"),
+        "{content}"
+    );
+
+    // Rust, same file: only the test region counts, so `perimeter` calling
+    // `area` in the code does not make `area` tested — but its test does.
+    std::fs::write(
+        dir.join("shapes.rs"),
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\npub fn perimeter(w: f64, h: f64) -> f64 { area(w, h) }\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn area_works() {\n        assert_eq!(area(2.0, 3.0), 6.0);\n    }\n}\n",
+    )
+    .expect("write");
+    let manifest = scaffold("rust", "shapes.rs", &[]);
+    assert_eq!(manifest[0]["action"], "inject");
+    let content = manifest[0]["content"].as_str().expect("content");
+    assert!(content.contains("fn perimeter_works()"), "{content}");
+    assert!(!content.contains("fn area_works()"), "{content}");
+
+    // Everything tested: no entry, and nothing is written.
+    std::fs::write(
+        dir.join("test_geometry.py"),
+        "from geometry import *\n\ndef test_area(): area(1, 1)\ndef test_perimeter(): perimeter(1, 1)\n",
+    )
+    .expect("write");
+    let manifest = scaffold("python", "geometry.py", &[]);
+    assert_eq!(manifest, serde_json::json!([]));
+    let out = bin()
+        .args(["scaffold", "--lang", "python", "--write", "--root"])
+        .arg(&dir)
+        .arg("--source")
+        .arg(dir.join("geometry.py"))
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(stderr(&out).contains("up to date"), "{}", stderr(&out));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("test_geometry.py")).expect("read"),
+        "from geometry import *\n\ndef test_area(): area(1, 1)\ndef test_perimeter(): perimeter(1, 1)\n"
+    );
+}

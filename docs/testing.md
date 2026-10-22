@@ -214,6 +214,11 @@ def test_point_from_tuple():
     assert result == expected
 ```
 
+Run it again later, after adding a function to the source, and it appends
+just that function's test: an existing target's tests count, and the items
+they mention are left out (`--include-tested` renders them all). A target
+that already tests everything gets nothing appended.
+
 Add `--write` to create the file. The path and the import come from the
 **source variables** — `${src.dir}/test_${src.stem}.py` and `from
 ${src.module} import *` — so the same trigger works for any file. Rust's
@@ -298,8 +303,9 @@ the scaffold treats the current file as its own). The code-action menu offers
 **Add N missing tests to geometry.rs** with the same placement, but only for
 the functions no test mentions yet: names used inside the test region count
 as tested there, so a function that the rest of the code calls is still
-"missing" until a test mentions it. `tfile` and the typed abbreviation never
-look at existing tests — they generate from the source alone.
+"missing" until a test mentions it. `tfile` applies the same rule when its
+target exists (pass `--include-tested` to the CLI for everything); only the
+typed abbreviation without `?!tested` generates from the source alone.
 
 The choice is kept per buffer (`vim.b.codemmet_source`) and re-sent if the
 server restarts. The plugin launches `codemmet lsp` from your `PATH`, so the

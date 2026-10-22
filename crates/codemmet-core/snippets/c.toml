@@ -325,11 +325,11 @@ static void test_${value}(void) {
 '''
 
 [snippets.tfile]
-description = "create test_<source>.c beside the --source file with an assert test per value-returning fn (multi-file)"
+description = "write test_<source>.c beside the --source file with an assert test per value-returning fn; re-running adds the missing ones (multi-file)"
 
 [snippets.tfile.files.test]
 path = "${src.dir}/test_${src.stem}.c"
-on_exists = "create"
+on_exists = "append"
 on_create = '#include "${src.module}"'
 primary = true
 expands = "tfn*@src.fns"

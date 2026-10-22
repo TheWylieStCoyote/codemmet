@@ -2,14 +2,16 @@
 //! optionally writing it to disk.
 
 use std::io::Read as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Args;
 use codemmet_core::Engine;
 use codemmet_core::config::schema::OnExists;
 use codemmet_core::context::ExpansionContext;
+use codemmet_core::context::{TESTED, mark_tested};
 use codemmet_core::lang::imports;
+use codemmet_core::lang::source::test_region;
 use codemmet_core::scaffold::{FileOutput, ScaffoldOptions, scaffold};
 
 use super::{
@@ -19,6 +21,9 @@ use super::{
 
 /// Arguments for `codemmet scaffold`.
 #[derive(Debug, Args)]
+// Each flag is an independent switch the user spells out; grouping them
+// would obscure the command line.
+#[allow(clippy::struct_excessive_bools)]
 pub struct ScaffoldArgs {
     /// Language id, file extension, or LSP language id.
     #[arg(long, value_name = "ID")]
@@ -51,6 +56,13 @@ pub struct ScaffoldArgs {
     /// stays plain.
     #[arg(long)]
     all_tabstops: bool,
+
+    /// Render tests for every item even when the target file already tests
+    /// it. By default, when the primary target exists, the `src.*` items its
+    /// tests already mention (whole file; for a source file, its test region)
+    /// are left out, so re-running `tfile` adds only the missing tests.
+    #[arg(long)]
+    include_tested: bool,
 
     /// Print the manifest as one JSON array of `{path, action, content,
     /// primary}` objects.
@@ -148,7 +160,7 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
         source_file: source_path,
         all_tabstops: args.all_tabstops,
     };
-    let outputs = match scaffold(
+    let mut outputs = match scaffold(
         &engine,
         &args.lang,
         &abbr,
@@ -162,6 +174,37 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
             return ExitCode::from(EXIT_RENDER);
         }
     };
+    // An existing primary target already tests some items: leave those out
+    // and render again, so `tfile` catches up instead of duplicating. The
+    // target's own code never counts — a source file contributes only its
+    // test region.
+    if !args.include_tested
+        && let Some(primary) = outputs.iter().find(|o| o.primary)
+        && let Ok(existing) = std::fs::read_to_string(&primary.path)
+    {
+        let same_file = source_path.is_some_and(|src| same_path(src, &primary.path));
+        let tests = if same_file {
+            test_region(&args.lang, &existing).unwrap_or("")
+        } else {
+            existing.as_str()
+        };
+        if drop_tested(&mut ctx.collections, tests) {
+            outputs = match scaffold(
+                &engine,
+                &args.lang,
+                &abbr,
+                &ctx,
+                &opts,
+                args.tabstops.into(),
+            ) {
+                Ok(outputs) => outputs,
+                Err(err) => {
+                    eprintln!("error: cannot scaffold `{abbr}`: {err}");
+                    return ExitCode::from(EXIT_RENDER);
+                }
+            };
+        }
+    }
 
     // Decide each entry's concrete action against the filesystem.
     let mut planned = Vec::with_capacity(outputs.len());
@@ -174,6 +217,18 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
             }
         }
     }
+    // Nothing left to add to an existing file (every item already tested):
+    // say so instead of appending a blank block.
+    planned.retain(|entry| {
+        let empty = entry.content.trim().is_empty() && entry.action != Action::Create;
+        if empty {
+            eprintln!(
+                "note: {} is up to date; nothing to add",
+                entry.path.display()
+            );
+        }
+        !empty
+    });
 
     if args.json {
         return emit_json(&planned);
@@ -182,6 +237,35 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
         return apply(&planned);
     }
     emit_text(&planned)
+}
+
+/// Mark the `src.*` items `tests` mentions as tested and remove them from
+/// the collections; `true` when anything was removed.
+fn drop_tested(
+    collections: &mut std::collections::BTreeMap<String, codemmet_core::context::Collection>,
+    tests: &str,
+) -> bool {
+    mark_tested(collections, tests);
+    let mut dropped = false;
+    for (name, collection) in collections.iter_mut() {
+        if !name.starts_with("src.") {
+            continue;
+        }
+        let before = collection.items.len();
+        collection
+            .items
+            .retain(|item| !item.members.contains_key(TESTED));
+        dropped |= collection.items.len() != before;
+    }
+    dropped
+}
+
+/// Whether two paths name the same file (canonicalized when possible).
+fn same_path(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 /// Turn a [`FileOutput`] into a [`Planned`] entry: stat the target, pick the

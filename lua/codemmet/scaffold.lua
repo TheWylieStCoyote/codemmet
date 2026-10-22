@@ -265,6 +265,13 @@ vim.api.nvim_create_autocmd("BufEnter", {
 ---live session of their own.
 ---@param manifest table[]
 local function apply(manifest)
+  if #manifest == 0 then
+    vim.notify(
+      "codemmet: nothing to add — the target already has every test",
+      vim.log.levels.INFO
+    )
+    return
+  end
   local primary
   local names = {}
   local queued = 0

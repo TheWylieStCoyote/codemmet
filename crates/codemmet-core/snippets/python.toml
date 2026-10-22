@@ -426,11 +426,11 @@ def test_${value.owner|snake}_${value|snake}():
 '''
 
 [snippets.tfile]
-description = "create test_<source>.py beside the --source file with a pytest per public fn/method (multi-file)"
+description = "write test_<source>.py beside the --source file with a pytest per public fn/method; re-running adds the missing ones (multi-file)"
 
 [snippets.tfile.files.test]
 path = "${src.dir}/test_${src.stem}.py"
-on_exists = "create"
+on_exists = "append"
 on_create = "from ${src.module} import *"
 primary = true
 expands = "tfn*@src.fns+tmeth*@src.methods"
