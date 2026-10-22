@@ -186,7 +186,8 @@ collections](context-codegen.md#source-collections-functions-types-and-methods)
 for the member names a filter can test.
 
 One member comes from the editor rather than the source: **`tested`** is set
-on every `src.*` item whose name the tests already mention, so
+on every `src.*` item whose name the tests already mention in code (a
+docstring or comment naming it does not count), so
 `tfn*@src.fns?!tested` writes tests only for the functions that have none
 (and `?vis=public?!tested` keeps the default's public-only rule with it). In
 a test file with a source set, the whole file counts as tests; in a file

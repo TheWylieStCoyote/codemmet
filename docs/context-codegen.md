@@ -275,7 +275,7 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `ctor` | `ctor` on constructors | Rust `new`, Python `__init__`, C++ `Point()`, JS/TS `constructor` |
 | `signature` | the parameter **types** only, names, defaults, and spacing normalized away (`const std::string&`) — what tells overloads apart; a prototype or in-class declaration merges with its definition when they match | C, C++ |
 | `overload` | the 1-based ordinal of a function within its overload set (`1`, `2`, …), absent for a function with one definition, so `Works${value.overload}` names each overload's test distinctly | C++ |
-| `tested` | `tested` on items the editor's tests already mention as a whole identifier (the test file with a source set; a source file's own test region — Rust from `#[cfg(test)]`, Python from the first `def test_…`/`class Test…`) | set by the LSP, never by the CLI |
+| `tested` | `tested` on items the editor's tests already mention as a whole identifier outside comments and strings (the test file with a source set; a source file's own test region — Rust from `#[cfg(test)]`, Python from the first `def test_…`/`class Test…`) | set by the LSP, never by the CLI |
 | `kind` | `struct`, `enum`, `class`, `trait`, `interface`, `union`, `type` | `src.types` |
 | `test` | `test` on test functions | Rust `#[test]`/`#[*::test]`, Python `test_*`, Go `Test*` |
 | `module` | the enclosing module / namespace path | Rust `mod`, C++ `namespace`, TS `namespace` |
@@ -523,7 +523,9 @@ client), the code-action menu offers, anywhere in the buffer:
 Each applies as one plain-text edit appended at the end of the file, so it
 also works as "catch up": add a function to the source, re-run the action, get
 just its test. "Already tested" is a whole-identifier mention of the function
-name anywhere in the buffer — a deliberately simple heuristic, which is why
+name anywhere in the buffer's code — comments and string literals, a
+docstring that lists the functions it covers included, do not count — a
+deliberately simple heuristic, which is why
 the actions report a count you can sanity-check before applying. Works in
 every language the `tfn`/`tmeth` triggers ship for; the user packs that
 override those triggers (and their `filter`) are honored.

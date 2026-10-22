@@ -1723,3 +1723,53 @@ fn frameworks_init_option_and_project_config_select_test_packs() {
     assert!(snippet.contains("await fetch(url)"), "snippet: {snippet}");
     client.shutdown();
 }
+
+/// A name mentioned only in a docstring or comment is not tested: `tested`
+/// counts mentions in code, and the code action agrees.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn tested_ignores_mentions_in_comments_and_strings() {
+    let dir = scratch_dir("lsp-tested-literals");
+    let src = dir.join("geometry.py");
+    std::fs::write(
+        &src,
+        "def area(w, h):\n    return w * h\n\ndef perimeter(w, h):\n    return 2 * (w + h)\n",
+    )
+    .expect("write");
+    let (mut client, _) = LspClient::start("tested-literals", &["utf-8"], &json!({}));
+    let test_uri = "file:///test/test_geometry.py";
+    client.open(
+        test_uri,
+        "python",
+        "\"\"\"Tests for area and perimeter.\"\"\"\nfrom geometry import *\n\n# perimeter is covered below\ndef test_area():\n    assert area(2, 3) == 6\ntfn*@src.fns?!tested\n",
+    );
+    client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.setSource",
+            "arguments": [{ "uri": test_uri, "source": src.to_str().expect("UTF-8 path") }],
+        }),
+    );
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.expand",
+            "arguments": [{ "uri": test_uri, "position": { "line": 6, "character": 20 } }],
+        }),
+    );
+    let snippet = result["snippet"].as_str().expect("snippet");
+    assert!(
+        snippet.contains("def test_perimeter():"),
+        "snippet: {snippet}"
+    );
+    assert!(!snippet.contains("def test_area():"), "snippet: {snippet}");
+
+    let result = client.code_action(test_uri, 0, 0);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 1, "actions: {result}");
+    assert_eq!(
+        actions[0]["title"],
+        json!("Add 1 missing function test from geometry.py")
+    );
+    client.shutdown();
+}

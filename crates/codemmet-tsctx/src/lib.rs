@@ -978,6 +978,30 @@ impl ContextProvider for TreeSitterProvider {
         imports::scan(&doc.language, tree.root_node(), &doc.text)
     }
 
+    fn literal_ranges(&mut self, doc: &DocSnapshot) -> Vec<std::ops::Range<usize>> {
+        let Some(spec) = spec_for(&doc.language) else {
+            return Vec::new();
+        };
+        let Some(tree) = self.tree_for(doc, spec) else {
+            return Vec::new();
+        };
+        let mut ranges = Vec::new();
+        let mut stack = vec![tree.root_node()];
+        while let Some(node) = stack.pop() {
+            let kind = node.kind();
+            if kind.contains("comment") || spec.is_string_kind(kind) {
+                ranges.push(node.byte_range());
+                continue;
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
+        }
+        ranges.sort_by_key(|r| r.start);
+        ranges
+    }
+
     fn source_collections(&mut self, doc: &DocSnapshot) -> BTreeMap<String, Collection> {
         let Some(spec) = spec_for(&doc.language) else {
             return BTreeMap::new();
@@ -1115,6 +1139,45 @@ mod tests {
     /// A Rust `mod` is an injection target when named (`into = "tests"`): a
     /// scaffold adds tests to an existing `mod tests`. Unnamed injection still
     /// takes the last type body, never a module.
+    /// Comments and string literals (docstrings included) are reported as
+    /// ranges, so a name mentioned only there does not count as tested.
+    #[cfg(feature = "lang-python")]
+    #[test]
+    fn literal_ranges_cover_comments_and_strings() {
+        let text = "\"\"\"Tests for area and perimeter.\"\"\"\n# perimeter too\ndef test_area():\n    assert area(2, 3) == 6  # not perimeter\n";
+        let mut provider = TreeSitterProvider::new();
+        let doc = DocSnapshot {
+            language: "python".to_owned(),
+            text: text.to_owned(),
+        };
+        let ranges = provider.literal_ranges(&doc);
+        let covered: Vec<&str> = ranges.iter().map(|r| &text[r.clone()]).collect();
+        assert_eq!(
+            covered,
+            [
+                "\"\"\"Tests for area and perimeter.\"\"\"",
+                "# perimeter too",
+                "# not perimeter"
+            ]
+        );
+        let mut collections = BTreeMap::from([(
+            "src.fns".to_owned(),
+            Collection {
+                items: vec![
+                    codemmet_core::context::Item::new("area"),
+                    codemmet_core::context::Item::new("perimeter"),
+                ],
+            },
+        )]);
+        codemmet_core::context::mark_tested_outside(&mut collections, text, &ranges);
+        let fns = &collections["src.fns"].items;
+        assert!(fns[0].members.contains_key("tested"), "area is called");
+        assert!(
+            !fns[1].members.contains_key("tested"),
+            "perimeter only in prose"
+        );
+    }
+
     #[cfg(feature = "lang-rust")]
     #[test]
     fn inject_into_a_named_rust_module() {

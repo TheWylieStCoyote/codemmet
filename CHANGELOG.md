@@ -8,6 +8,11 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`tested` ignores comments and strings.** The tree-sitter provider
+  reports comment and string-literal ranges, and the `tested` mark (the
+  `?!tested` filter, the "add missing tests" code action, and `scaffold`'s
+  catch-up) counts only mentions outside them — a docstring that lists the
+  functions a file covers no longer marks them all tested.
 - **`scaffold` skips what the target already tests.** When the primary
   target file exists, `codemmet scaffold` marks the `src.*` items its tests
   mention (`tested`; a source file counts only its test region) and leaves

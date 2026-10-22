@@ -294,6 +294,11 @@ depend on earlier ones.
 
 ## Refinements made while building
 
+- **`tested` skips literals**: `ContextProvider::literal_ranges` (comments and
+  strings via tree-sitter) feeds `mark_tested_outside`, so prose naming a
+  function is not its test. The remaining heuristic is "whole-identifier
+  mention in code".
+
 - **`scaffold` is tested-aware**: with an existing primary target, the CLI
   marks `tested` against the target's text (test region for a source file)
   and drops those items before rendering — `tfile` catches up instead of

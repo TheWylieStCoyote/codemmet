@@ -9,8 +9,9 @@ use clap::Args;
 use codemmet_core::Engine;
 use codemmet_core::config::schema::OnExists;
 use codemmet_core::context::ExpansionContext;
-use codemmet_core::context::{TESTED, mark_tested};
+use codemmet_core::context::{DocSnapshot, TESTED, mark_tested_outside, ranges_within};
 use codemmet_core::lang::imports;
+use codemmet_core::lang::profile;
 use codemmet_core::lang::source::test_region;
 use codemmet_core::scaffold::{FileOutput, ScaffoldOptions, scaffold};
 
@@ -183,12 +184,7 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
         && let Ok(existing) = std::fs::read_to_string(&primary.path)
     {
         let same_file = source_path.is_some_and(|src| same_path(src, &primary.path));
-        let tests = if same_file {
-            test_region(&args.lang, &existing).unwrap_or("")
-        } else {
-            existing.as_str()
-        };
-        if drop_tested(&mut ctx.collections, tests) {
+        if drop_tested(&mut ctx.collections, &args.lang, &existing, same_file) {
             outputs = match scaffold(
                 &engine,
                 &args.lang,
@@ -239,13 +235,33 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
     emit_text(&planned)
 }
 
-/// Mark the `src.*` items `tests` mentions as tested and remove them from
-/// the collections; `true` when anything was removed.
+/// Mark the `src.*` items that `existing` (the target file's text) already
+/// tests and remove them from the collections; `true` when anything was
+/// removed. A file that is its own source contributes only its test region,
+/// and mentions inside comments and strings (a docstring naming the
+/// function) do not count.
 fn drop_tested(
     collections: &mut std::collections::BTreeMap<String, codemmet_core::context::Collection>,
-    tests: &str,
+    lang: &str,
+    existing: &str,
+    same_file: bool,
 ) -> bool {
-    mark_tested(collections, tests);
+    let language = profile::find(lang).map_or(lang, |p| p.id);
+    let tests = if same_file {
+        test_region(language, existing).unwrap_or("")
+    } else {
+        existing
+    };
+    let doc = DocSnapshot {
+        language: language.to_owned(),
+        text: existing.to_owned(),
+    };
+    let start = existing.len() - tests.len();
+    let skip = ranges_within(
+        &super::render::default_provider().literal_ranges(&doc),
+        start..existing.len(),
+    );
+    mark_tested_outside(collections, tests, &skip);
     let mut dropped = false;
     for (name, collection) in collections.iter_mut() {
         if !name.starts_with("src.") {

@@ -286,14 +286,27 @@ pub const TESTED: &str = "tested";
 /// `?tested`. `tests` is the text that counts as tests: a test file, or a
 /// source file's own test region ([`crate::lang::source::test_region`]).
 /// Items not mentioned lose any earlier mark, so the result reflects `tests`
-/// alone.
+/// alone. See [`mark_tested_outside`] to ignore comments and strings.
 pub fn mark_tested(collections: &mut BTreeMap<String, Collection>, tests: &str) {
+    mark_tested_outside(collections, tests, &[]);
+}
+
+/// [`mark_tested`], ignoring mentions inside `skip`.
+///
+/// `skip` holds byte ranges of `tests` that are comments or string literals
+/// ([`ContextProvider::literal_ranges`]), so a docstring that names a
+/// function does not count as its test.
+pub fn mark_tested_outside(
+    collections: &mut BTreeMap<String, Collection>,
+    tests: &str,
+    skip: &[Range<usize>],
+) {
     for (name, collection) in collections.iter_mut() {
         if !name.starts_with("src.") {
             continue;
         }
         for item in &mut collection.items {
-            if mentions(tests, &item.value) {
+            if mentions_outside(tests, &item.value, skip) {
                 item.members.insert(TESTED.to_owned(), TESTED.to_owned());
             } else {
                 item.members.remove(TESTED);
@@ -306,11 +319,20 @@ pub fn mark_tested(collections: &mut BTreeMap<String, Collection>, tests: &str) 
 /// longer one) — the heuristic for "this function already has a test".
 #[must_use]
 pub fn mentions(text: &str, name: &str) -> bool {
+    mentions_outside(text, name, &[])
+}
+
+/// [`mentions`], not counting occurrences inside the `skip` byte ranges.
+#[must_use]
+pub fn mentions_outside(text: &str, name: &str, skip: &[Range<usize>]) -> bool {
     if name.is_empty() {
         return false;
     }
     let is_ident = |c: char| c.is_alphanumeric() || c == '_';
     text.match_indices(name).any(|(at, _)| {
+        if skip.iter().any(|r| r.contains(&at)) {
+            return false;
+        }
         let before = text[..at].chars().next_back().is_none_or(|c| !is_ident(c));
         let after = text[at + name.len()..]
             .chars()
@@ -318,6 +340,17 @@ pub fn mentions(text: &str, name: &str) -> bool {
             .is_none_or(|c| !is_ident(c));
         before && after
     })
+}
+
+/// Re-base byte `ranges` of a document onto its `window` slice: the parts
+/// that fall inside the window, clamped, relative to the window's start.
+#[must_use]
+pub fn ranges_within(ranges: &[Range<usize>], window: Range<usize>) -> Vec<Range<usize>> {
+    ranges
+        .iter()
+        .filter(|r| r.start < window.end && r.end > window.start)
+        .map(|r| r.start.max(window.start) - window.start..r.end.min(window.end) - window.start)
+        .collect()
 }
 
 /// Result of validating a wrap-with-abbreviation selection.
@@ -407,6 +440,13 @@ pub trait ContextProvider {
     ///
     /// Defaults to empty: a provider without syntax awareness has nothing to
     /// read. The tree-sitter provider implements it per language.
+    /// Byte ranges of `doc` that are comments or string literals, so a
+    /// textual heuristic ([`mark_tested_outside`]) can ignore them. Defaults
+    /// to none: a syntax-unaware provider cannot tell.
+    fn literal_ranges(&mut self, _doc: &DocSnapshot) -> Vec<Range<usize>> {
+        Vec::new()
+    }
+
     fn source_collections(&mut self, _doc: &DocSnapshot) -> BTreeMap<String, Collection> {
         BTreeMap::new()
     }
@@ -456,6 +496,25 @@ mod tests {
         assert!(!mentions("fn area_works() {}", "area"));
         assert!(!mentions("let subarea = 1;", "area"));
         assert!(!mentions("anything", ""));
+    }
+
+    #[test]
+    fn mentions_inside_skipped_ranges_do_not_count() {
+        // `"""tests area"""` is a docstring; the later `perimeter(` is code.
+        let text = r#""""tests area""" ; perimeter(1, 1)"#;
+        let docstring = 0..text.find(';').expect("marker");
+        assert!(mentions(text, "area"));
+        assert!(!mentions_outside(
+            text,
+            "area",
+            std::slice::from_ref(&docstring)
+        ));
+        assert!(mentions_outside(text, "perimeter", &[docstring]));
+        // Re-basing onto a window keeps only the overlapping parts.
+        assert_eq!(
+            ranges_within(&[2..5, 8..12, 20..30], 4..10),
+            vec![0..1, 4..6]
+        );
     }
 
     #[test]

@@ -24,7 +24,7 @@ use codemmet_core::config::paths::PathMapping;
 use codemmet_core::config::project::{self as project_config, Frameworks};
 use codemmet_core::context::{
     Collection, ContextProvider, DocSnapshot, ExpansionContext, Item, SourceContext, TESTED,
-    mark_tested,
+    mark_tested_outside, ranges_within,
 };
 use codemmet_core::lang::profile;
 use codemmet_core::lang::registry::{Registry, resolve_override_dirs};
@@ -289,7 +289,7 @@ impl Server {
         if let Some(source) = &source {
             source.apply(ctx);
         }
-        mark_tested(&mut ctx.collections, tests_in(doc, same_file));
+        mark_doc_tested(self.provider.as_mut(), doc, same_file, &mut ctx.collections);
     }
 
     /// The engine resolved for the document at `uri` (path-scoped tiers).
@@ -671,7 +671,7 @@ impl Server {
             .then(|| test_region(lang.profile.id, &doc.text))
             .flatten();
         let mut collections = collections.clone();
-        mark_tested(&mut collections, tests_in(doc, same_file));
+        mark_doc_tested(self.provider.as_mut(), doc, same_file, &mut collections);
         let parts = missing_parts(lang, &collections);
         if parts.is_empty() {
             return Vec::new();
@@ -902,6 +902,20 @@ fn tests_in(doc: &DocSnapshot, same_file: bool) -> &str {
     } else {
         &doc.text
     }
+}
+
+/// Mark the `src.*` items of `collections` that `doc`'s tests mention
+/// ([`tests_in`]), ignoring mentions inside comments and strings.
+fn mark_doc_tested(
+    provider: &mut dyn ContextProvider,
+    doc: &DocSnapshot,
+    same_file: bool,
+    collections: &mut BTreeMap<String, Collection>,
+) {
+    let tests = tests_in(doc, same_file);
+    let start = doc.text.len() - tests.len();
+    let skip = ranges_within(&provider.literal_ranges(doc), start..doc.text.len());
+    mark_tested_outside(collections, tests, &skip);
 }
 
 /// Whether the language's builtin `tfile` scaffold writes into the source

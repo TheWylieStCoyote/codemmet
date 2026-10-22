@@ -2489,3 +2489,37 @@ fn scaffold_skips_items_the_target_already_tests() {
         "from geometry import *\n\ndef test_area(): area(1, 1)\ndef test_perimeter(): perimeter(1, 1)\n"
     );
 }
+
+/// `scaffold` ignores mentions inside comments and strings when deciding
+/// what an existing target already tests.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn scaffold_ignores_mentions_in_comments_and_strings() {
+    let dir = scratch_dir("scaffold-tested-literals");
+    std::fs::write(
+        dir.join("geometry.py"),
+        "def area(w, h):\n    return w * h\n\ndef perimeter(w, h):\n    return 2 * (w + h)\n",
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("test_geometry.py"),
+        "\"\"\"Tests for area and perimeter.\"\"\"\nfrom geometry import *\n\ndef test_area():\n    assert area(2, 3) == 6  # perimeter later\n",
+    )
+    .expect("write");
+    let out = bin()
+        .args(["scaffold", "--lang", "python", "--json", "--root"])
+        .arg(&dir)
+        .arg("--source")
+        .arg(dir.join("geometry.py"))
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let manifest: serde_json::Value = serde_json::from_str(stdout(&out).trim()).expect("JSON");
+    assert_eq!(
+        manifest[0]["content"],
+        "def test_perimeter():\n    result = perimeter(w, h)\n    assert result == expected"
+    );
+}

@@ -3,7 +3,8 @@
 
 use codemmet_core::Engine;
 use codemmet_core::context::{
-    ContextProvider, DocSnapshot, ExpansionContext, SourceContext, mark_tested,
+    ContextProvider, DocSnapshot, ExpansionContext, SourceContext, mark_tested_outside,
+    ranges_within,
 };
 use codemmet_core::lang::registry::LanguageSnippets;
 use codemmet_core::lang::source::test_region;
@@ -67,7 +68,10 @@ pub fn compute(
     } else {
         text
     };
-    mark_tested(&mut ctx.collections, tests);
+    // Mentions inside comments and strings do not count.
+    let region_start = text.len() - tests.len();
+    let skip = ranges_within(&provider.literal_ranges(&doc), region_start..text.len());
+    mark_tested_outside(&mut ctx.collections, tests, &skip);
     // LSP snippet clients (VS Code, Neovim's `vim.snippet`) re-indent snippet
     // continuation lines from the insertion position, so a server-side base
     // indent would be applied twice. Render with an empty base indent;
