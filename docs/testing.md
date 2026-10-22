@@ -142,6 +142,12 @@ codemmet expand --lang python --source src/geometry.py "tfn*@src.fns?!async"    
 codemmet expand --lang python --source src/geometry.py 'tfn*@src.fns?value~*meter'  # perimeter only
 ```
 
+In the editor there is one more member to filter on: `tested`, set on every
+function the test buffer already mentions. `tfn*@src.fns?!tested` adds tests
+only for the functions that have none, which is the abbreviation form of the
+"add missing tests" code action below (the CLI has no test buffer, so there
+`?!tested` keeps everything).
+
 Methods come from `src.Point.methods` (or `src.methods` for every type at
 once) through `tmeth`, which picks a body **per item**: `__init__` gets a
 construction test, a `staticmethod` or `classmethod` is called on the class,
@@ -280,7 +286,9 @@ tmod>tfn*@src.fns+tmeth*@src.methods
 
 and press `<A-e>`: a `#[cfg(test)] mod tests { use super::*; … }` with one
 test per public function and method appears as a live snippet, cursor on the
-first `expected`. `:CodemmetScaffold tfile` does the same without typing the
+first `expected`. Later, inside that module, `tfn*@src.fns?vis=public?!tested`
+adds tests for the public functions that still have none: `tested` is set on
+every item a name in the test region (from `#[cfg(test)]` on) mentions. `:CodemmetScaffold tfile` does the same without typing the
 abbreviation (it is what Rust's `tfile` expands to; with no source set, the
 scaffold treats the current file as its own), and the code-action menu
 offers **Add N missing tests to geometry.rs**: in a file without a test module

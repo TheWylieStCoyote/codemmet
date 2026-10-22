@@ -1514,3 +1514,92 @@ fn code_action_adds_missing_tests_inside_the_existing_test_module() {
     assert_eq!(client.code_action(py, 0, 0), json!([]));
     client.shutdown();
 }
+
+/// `tested` marks the `src.*` items the tests already mention, so
+/// `tfn*@src.fns?!tested` writes tests only for what has none. In a file that
+/// is its own source, only the test region counts; with a source set, the
+/// whole test file does.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn tested_member_marks_functions_the_tests_mention() {
+    let (mut client, _) = LspClient::start("tested-member", &["utf-8"], &json!({}));
+    // `perimeter` calls `area` in the code: not a test. The test module tests
+    // `area` only.
+    client.open(
+        URI,
+        "rust",
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\npub fn perimeter(w: f64, h: f64) -> f64 { area(w, h) }\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn area_works() {\n        assert_eq!(area(2.0, 3.0), 6.0);\n    }\n    tfn*@src.fns?!tested\n}\n",
+    );
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.context",
+            "arguments": [{ "uri": URI, "position": { "line": 11, "character": 4 } }],
+        }),
+    );
+    let fns = result["collections"]
+        .as_array()
+        .expect("collections")
+        .iter()
+        .find(|c| c["name"] == json!("src.fns"))
+        .expect("src.fns")
+        .clone();
+    assert_eq!(fns["items"][0]["value"], json!("area"));
+    assert_eq!(fns["items"][0]["members"]["tested"], json!("tested"));
+    assert_eq!(fns["items"][1]["value"], json!("perimeter"));
+    assert!(
+        fns["items"][1]["members"].get("tested").is_none(),
+        "perimeter: {}",
+        fns["items"][1]
+    );
+
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.expand",
+            "arguments": [{ "uri": URI, "position": { "line": 11, "character": 24 } }],
+        }),
+    );
+    let snippet = result["snippet"].as_str().expect("snippet");
+    assert!(
+        snippet.contains("fn perimeter_works()"),
+        "snippet: {snippet}"
+    );
+    assert!(!snippet.contains("fn area_works()"), "snippet: {snippet}");
+
+    // A test file with a source: every mention in it counts.
+    let dir = scratch_dir("lsp-tested-member");
+    let src = dir.join("geometry.rs");
+    std::fs::write(
+        &src,
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\npub fn perimeter(w: f64, h: f64) -> f64 { area(w, h) }\n",
+    )
+    .expect("write");
+    let test_uri = "file:///test/geometry_test.rs";
+    client.open(
+        test_uri,
+        "rust",
+        "use geometry::*;\n\n#[test]\nfn perimeter_works() {\n    assert_eq!(perimeter(2.0, 3.0), 10.0);\n}\ntfn*@src.fns?!tested\n",
+    );
+    client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.setSource",
+            "arguments": [{ "uri": test_uri, "source": src.to_str().expect("UTF-8 path") }],
+        }),
+    );
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.expand",
+            "arguments": [{ "uri": test_uri, "position": { "line": 6, "character": 20 } }],
+        }),
+    );
+    let snippet = result["snippet"].as_str().expect("snippet");
+    assert!(snippet.contains("fn area_works()"), "snippet: {snippet}");
+    assert!(
+        !snippet.contains("fn perimeter_works()"),
+        "snippet: {snippet}"
+    );
+    client.shutdown();
+}

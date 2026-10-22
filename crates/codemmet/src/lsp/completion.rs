@@ -2,8 +2,11 @@
 //! trigger-prefix discovery items for the segment being typed.
 
 use codemmet_core::Engine;
-use codemmet_core::context::{ContextProvider, DocSnapshot, ExpansionContext, SourceContext};
+use codemmet_core::context::{
+    ContextProvider, DocSnapshot, ExpansionContext, SourceContext, mark_tested,
+};
 use codemmet_core::lang::registry::LanguageSnippets;
+use codemmet_core::lang::source::test_region;
 use codemmet_core::snippet::render::TabstopMode;
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionTextEdit,
@@ -35,6 +38,7 @@ pub fn compute(
     mode: CompletionMode,
     encoding: PositionEncoding,
     source: Option<&SourceContext>,
+    same_file: bool,
 ) -> Option<Vec<CompletionItem>> {
     if mode == CompletionMode::Off {
         return None;
@@ -56,6 +60,14 @@ pub fn compute(
     if let Some(source) = source {
         source.apply(&mut ctx);
     }
+    // `tested` marks: the whole document is the tests for a test file; a
+    // document that is its own source counts only its test region.
+    let tests = if same_file {
+        test_region(lang.profile.id, text).unwrap_or("")
+    } else {
+        text
+    };
+    mark_tested(&mut ctx.collections, tests);
     // LSP snippet clients (VS Code, Neovim's `vim.snippet`) re-indent snippet
     // continuation lines from the insertion position, so a server-side base
     // indent would be applied twice. Render with an empty base indent;
@@ -250,6 +262,7 @@ mod tests {
             mode,
             PositionEncoding::Utf8,
             None,
+            true,
         )
     }
 
@@ -385,6 +398,7 @@ mod tests {
             CompletionMode::Always,
             PositionEncoding::Utf8,
             None,
+            true,
         );
         assert!(items.is_none());
     }

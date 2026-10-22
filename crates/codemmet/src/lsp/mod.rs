@@ -22,10 +22,12 @@ use codemmet_core::Engine;
 use codemmet_core::config::loader::{ConfigError, FileTarget};
 use codemmet_core::config::paths::PathMapping;
 use codemmet_core::context::{
-    Collection, ContextProvider, DocSnapshot, ExpansionContext, Item, SourceContext,
+    Collection, ContextProvider, DocSnapshot, ExpansionContext, Item, SourceContext, TESTED,
+    mark_tested,
 };
 use codemmet_core::lang::profile;
 use codemmet_core::lang::registry::{Registry, resolve_override_dirs};
+use codemmet_core::lang::source::test_region;
 use codemmet_core::snippet::render::TabstopMode;
 #[cfg(feature = "tree-sitter")]
 use codemmet_tsctx::TreeSitterProvider;
@@ -237,6 +239,23 @@ impl Server {
             slot.cached = Some((stamp.0, stamp.1, Rc::clone(&context)));
         }
         Some(context)
+    }
+
+    /// Finish `ctx` for the document at `uri`: apply its source (if any) and
+    /// mark the `src.*` items its tests already cover ([`mark_tested`]), so
+    /// `?!tested` repeats and the `tested` member work. With an explicit
+    /// source in another file, the whole document is the tests; a document
+    /// that is its own source — explicitly, or with no source set — counts
+    /// only its test region ([`test_region`]).
+    fn apply_source(&mut self, uri: &Uri, doc: &DocSnapshot, ctx: &mut ExpansionContext) {
+        let source = self.source_context(uri);
+        let same_file = source.as_ref().is_none_or(|source| {
+            file_uri_to_path(uri.as_str()).as_deref() == Some(Path::new(&source.path))
+        });
+        if let Some(source) = &source {
+            source.apply(ctx);
+        }
+        mark_tested(&mut ctx.collections, tests_in(doc, same_file));
     }
 
     /// The engine resolved for the document at `uri` (path-scoped tiers).
@@ -489,6 +508,10 @@ impl Server {
         let uri = &position.text_document.uri;
         let path = file_uri_to_path(uri.as_str());
         let source = self.source_context(uri);
+        // No source, or one that is this very file: its own test region counts.
+        let same_file = source
+            .as_ref()
+            .is_none_or(|source| path.as_deref() == Some(Path::new(&source.path)));
         let Some(doc) = self.docs.get(uri) else {
             // An unopened document is not an error; there is just nothing
             // to complete.
@@ -509,6 +532,7 @@ impl Server {
             self.completion_mode,
             self.encoding,
             source.as_deref(),
+            same_file,
         );
         match serde_json::to_value(items) {
             Ok(value) => Response::new_ok(request.id, value),
@@ -599,16 +623,12 @@ impl Server {
         );
         // In a source file, a name mentioned by the code itself is not tested;
         // only the test region counts.
-        let test_region = same_file
-            .then(|| doc.text.find(TEST_REGION_MARKER))
+        let region = same_file
+            .then(|| test_region(lang.profile.id, &doc.text))
             .flatten();
-        let haystack = if same_file {
-            test_region.map_or("", |at| &doc.text[at..])
-        } else {
-            doc.text.as_str()
-        };
-
-        let parts = missing_parts(lang, collections, haystack);
+        let mut collections = collections.clone();
+        mark_tested(&mut collections, tests_in(doc, same_file));
+        let parts = missing_parts(lang, &collections);
         if parts.is_empty() {
             return Vec::new();
         }
@@ -639,7 +659,7 @@ impl Server {
                 .join("+");
             let plural = if count == 1 { "" } else { "s" };
             let title = format!("Add {count} missing test{plural} to {file}");
-            let closing = test_region.and_then(|_| closing_brace_line(&doc.text));
+            let closing = region.and_then(|_| closing_brace_line(&doc.text));
             let indent = lang.profile.default_indent.as_str();
             let edit = same_file_edit(&doc.text, closing, &indent, &abbr, |abbr| {
                 expand(abbr, &ctx)
@@ -827,27 +847,17 @@ fn text_edit_action(
     })
 }
 
-/// Whether `text` mentions `name` as a whole identifier (not as part of a
-/// longer one) — the heuristic for "this function already has a test".
-fn mentions(text: &str, name: &str) -> bool {
-    if name.is_empty() {
-        return false;
+/// The text of `doc` that counts as tests for marking `src.*` items: all of
+/// it for a test file, only the test region for a document that is its own
+/// source (none when its language has no in-file test convention).
+fn tests_in(doc: &DocSnapshot, same_file: bool) -> &str {
+    if same_file {
+        let language = profile::find(&doc.language).map_or(doc.language.as_str(), |p| p.id);
+        test_region(language, &doc.text).unwrap_or("")
+    } else {
+        &doc.text
     }
-    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
-    text.match_indices(name).any(|(at, _)| {
-        let before = text[..at].chars().next_back().is_none_or(|c| !is_ident(c));
-        let after = text[at + name.len()..]
-            .chars()
-            .next()
-            .is_none_or(|c| !is_ident(c));
-        before && after
-    })
 }
-
-/// Where a source file's own tests begin: only mentions from here on count as
-/// "already tested" when a document is its own source. Same-file tests are a
-/// Rust convention; other languages keep them in sibling files.
-const TEST_REGION_MARKER: &str = "#[cfg(test)]";
 
 /// Whether the language's builtin `tfile` scaffold writes into the source
 /// file itself (`target = "source"`), i.e. tests conventionally live beside
@@ -863,14 +873,13 @@ fn tests_live_in_source(lang: &codemmet_core::lang::registry::LanguageSnippets) 
     })
 }
 
-/// The builtin test triggers that still have untested items in `collections`:
-/// `(trigger, noun, items)` for `tfn` over `src.fns` and `tmeth` over
-/// `src.methods`, keeping the items that pass the trigger's own default
-/// filter and whose name `haystack` never mentions.
+/// The builtin test triggers that still have untested items in `collections`
+/// (already passed through [`mark_tested`]): `(trigger, noun, items)` for
+/// `tfn` over `src.fns` and `tmeth` over `src.methods`, keeping the items
+/// that pass the trigger's own default filter and carry no `tested` mark.
 fn missing_parts<'a>(
     lang: &'a codemmet_core::lang::registry::LanguageSnippets,
     collections: &BTreeMap<String, Collection>,
-    haystack: &str,
 ) -> Vec<(&'a str, &'a str, Vec<Item>)> {
     let mut parts = Vec::new();
     for (trigger, key, noun) in [
@@ -885,7 +894,7 @@ fn missing_parts<'a>(
             .items
             .iter()
             .filter(|item| snippet.filter.iter().all(|p| p.matches(item)))
-            .filter(|item| !mentions(haystack, &item.value))
+            .filter(|item| !item.members.contains_key(TESTED))
             .cloned()
             .collect();
         if !missing.is_empty() {

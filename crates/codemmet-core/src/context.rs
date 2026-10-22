@@ -276,6 +276,50 @@ impl SourceContext {
     }
 }
 
+/// The member [`mark_tested`] puts on an item the tests already cover.
+pub const TESTED: &str = "tested";
+
+/// Mark the `src.*` items that `tests` mentions as a whole identifier with a
+/// [`TESTED`] member.
+///
+/// A repeat can then filter with `?!tested` ("only what has no test yet") or
+/// `?tested`. `tests` is the text that counts as tests: a test file, or a
+/// source file's own test region ([`crate::lang::source::test_region`]).
+/// Items not mentioned lose any earlier mark, so the result reflects `tests`
+/// alone.
+pub fn mark_tested(collections: &mut BTreeMap<String, Collection>, tests: &str) {
+    for (name, collection) in collections.iter_mut() {
+        if !name.starts_with("src.") {
+            continue;
+        }
+        for item in &mut collection.items {
+            if mentions(tests, &item.value) {
+                item.members.insert(TESTED.to_owned(), TESTED.to_owned());
+            } else {
+                item.members.remove(TESTED);
+            }
+        }
+    }
+}
+
+/// Whether `text` mentions `name` as a whole identifier (not as part of a
+/// longer one) — the heuristic for "this function already has a test".
+#[must_use]
+pub fn mentions(text: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices(name).any(|(at, _)| {
+        let before = text[..at].chars().next_back().is_none_or(|c| !is_ident(c));
+        let after = text[at + name.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !is_ident(c));
+        before && after
+    })
+}
+
 /// Result of validating a wrap-with-abbreviation selection.
 #[derive(Debug, Clone)]
 pub enum WrapSelection {
@@ -405,6 +449,53 @@ impl ContextProvider for NullContextProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mentions_matches_whole_identifiers_only() {
+        assert!(mentions("assert_eq!(area(2.0, 3.0), 6.0);", "area"));
+        assert!(!mentions("fn area_works() {}", "area"));
+        assert!(!mentions("let subarea = 1;", "area"));
+        assert!(!mentions("anything", ""));
+    }
+
+    #[test]
+    fn mark_tested_marks_src_items_the_tests_mention() {
+        let item = |value: &str| Item {
+            value: value.to_owned(),
+            ..Item::default()
+        };
+        let mut collections = BTreeMap::from([
+            (
+                "src.fns".to_owned(),
+                Collection {
+                    items: vec![item("area"), item("perimeter")],
+                },
+            ),
+            (
+                "Msg".to_owned(),
+                Collection {
+                    items: vec![item("area")],
+                },
+            ),
+        ]);
+        mark_tested(
+            &mut collections,
+            "fn t() { assert!(area(1.0, 1.0) > 0.0); }",
+        );
+        let fns = &collections["src.fns"].items;
+        assert_eq!(
+            fns[0].members.get(TESTED).map(String::as_str),
+            Some("tested")
+        );
+        assert!(!fns[1].members.contains_key(TESTED));
+        // Only `src.*` collections are marked.
+        assert!(!collections["Msg"].items[0].members.contains_key(TESTED));
+        // Re-marking against other tests replaces the marks.
+        mark_tested(&mut collections, "perimeter(1.0, 1.0)");
+        let fns = &collections["src.fns"].items;
+        assert!(!fns[0].members.contains_key(TESTED));
+        assert!(fns[1].members.contains_key(TESTED));
+    }
 
     #[test]
     fn parse_spec_reads_name_values_and_type_members() {

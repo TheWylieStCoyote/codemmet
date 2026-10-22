@@ -201,6 +201,7 @@ tfn*@src.fns                       # the builtin test trigger: public functions 
 tfn*@src.fns?!async?!test          # non-async, non-test functions, private ones included
 tmeth*@src.Point.methods?!static   # Point's instance methods
 fn*@src.fns?value~get_*            # a stub per getter
+tfn*@src.fns?!tested               # in the editor: only the functions without a test yet
 ```
 
 Each function item also carries a **`params` sub-collection** — one item per
@@ -272,6 +273,7 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `owner` | the type a method belongs to | `src.methods` |
 | `trait` | the trait an `impl Trait for Type` method implements | Rust |
 | `ctor` | `ctor` on constructors | Rust `new`, Python `__init__`, C++ `Point()`, JS/TS `constructor` |
+| `tested` | `tested` on items the editor's tests already mention as a whole identifier (the test file with a source set; a source file's own `#[cfg(test)]` region) | set by the LSP, never by the CLI |
 | `kind` | `struct`, `enum`, `class`, `trait`, `interface`, `union`, `type` | `src.types` |
 | `test` | `test` on test functions | Rust `#[test]`/`#[*::test]`, Python `test_*`, Go `Test*` |
 | `module` | the enclosing module / namespace path | Rust `mod`, C++ `namespace`, TS `namespace` |

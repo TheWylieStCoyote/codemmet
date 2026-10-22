@@ -164,9 +164,35 @@ fn go_package(path: &Path, text: &str) -> String {
         })
 }
 
+/// The part of `text` that holds the tests, for a language that keeps tests
+/// in the source file: Rust, from the first `#[cfg(test)]`.
+///
+/// `None` for a language whose tests live in sibling files, and for a Rust
+/// file without a test module. Used to decide which items a source file
+/// already tests ([`crate::context::mark_tested`]) without counting the code
+/// itself.
+#[must_use]
+pub fn test_region<'a>(language: &str, text: &'a str) -> Option<&'a str> {
+    match language {
+        "rust" => text.find("#[cfg(test)]").map(|at| &text[at..]),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_region_is_rust_only_and_starts_at_cfg_test() {
+        let text = "fn a() {}\n\n#[cfg(test)]\nmod tests {\n    fn t() { a(); }\n}\n";
+        assert_eq!(
+            test_region("rust", text),
+            Some("#[cfg(test)]\nmod tests {\n    fn t() { a(); }\n}\n")
+        );
+        assert_eq!(test_region("rust", "fn a() {}\n"), None);
+        assert_eq!(test_region("python", "def test_a(): a()\n"), None);
+    }
 
     fn module_of(language: &str, path: &str, text: &str) -> String {
         variables(language, Path::new(path), text)

@@ -105,7 +105,7 @@ pub fn expand(server: &mut Server, args: &ExpandArgs) -> Result<serde_json::Valu
         offset,
         args.formatting_options,
     );
-    apply_source(server, &args.uri, &mut ctx);
+    server.apply_source(&args.uri, &doc, &mut ctx);
     // LSP snippet clients (VS Code, Neovim's `vim.snippet`) re-indent snippet
     // continuation lines from the insertion position, so a server-side base
     // indent would be applied twice. Render with an empty base indent;
@@ -153,7 +153,7 @@ pub fn preview(server: &mut Server, args: &ExpandArgs) -> serde_json::Value {
         offset,
         args.formatting_options,
     );
-    apply_source(server, &args.uri, &mut ctx);
+    server.apply_source(&args.uri, &doc, &mut ctx);
     let Ok(expansion) = engine.expand(candidate, &doc.language, &ctx, TabstopMode::Strip) else {
         // A candidate is present but not renderable mid-typing: signal "keep".
         return serde_json::json!({});
@@ -198,7 +198,7 @@ pub fn wrap(server: &mut Server, args: &WrapArgs) -> Result<serde_json::Value, C
         snapped.start,
         args.formatting_options,
     );
-    apply_source(server, &args.uri, &mut ctx);
+    server.apply_source(&args.uri, &doc, &mut ctx);
     // LSP snippet clients (VS Code, Neovim's `vim.snippet`) re-indent snippet
     // continuation lines from the insertion position, so a server-side base
     // indent would be applied twice. Render with an empty base indent;
@@ -246,7 +246,7 @@ pub fn list(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, Com
     let offset = index.offset(&doc.text, args.position, server.encoding);
     let engine = server.engine_for(&args.uri);
     let mut ctx = server.provider.context_at(&doc, offset);
-    apply_source(server, &args.uri, &mut ctx);
+    server.apply_source(&args.uri, &doc, &mut ctx);
     // Bodies go to snippet clients that re-indent continuation lines from the
     // insertion position (see `expand`), so render with an empty base indent.
     ctx.base_indent = String::new();
@@ -294,11 +294,10 @@ pub fn context(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, 
     let index = LineIndex::new(&doc.text);
     let offset = index.offset(&doc.text, args.position, server.encoding);
     let mut ctx = server.provider.context_at(&doc, offset);
-    let source = server.source_context(&args.uri);
-    if let Some(source) = &source {
-        source.apply(&mut ctx);
-    }
-    let source_path = source.as_ref().map(|s| s.path.clone());
+    server.apply_source(&args.uri, &doc, &mut ctx);
+    let source_path = server
+        .source_context(&args.uri)
+        .map(|source| source.path.clone());
 
     let scopes: Vec<&str> = ctx.scopes.iter().map(|scope| scope_name(*scope)).collect();
     let collections: Vec<serde_json::Value> = ctx
@@ -416,12 +415,6 @@ fn normalize(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Merge the document's explicit source (if any) into `ctx`.
-fn apply_source(server: &mut Server, uri: &Uri, ctx: &mut ExpansionContext) {
-    if let Some(source) = server.source_context(uri) {
-        source.apply(ctx);
-    }
-}
-
 /// One display line summarizing a strip-mode expansion: its first line, with
 /// an ellipsis when more follow.
 fn one_line_hint(body: &str) -> String {

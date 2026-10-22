@@ -74,6 +74,11 @@ follows [Semantic Versioning](https://semver.org/).
   no source is its own: "Add N missing tests to `<file>`" adds a `mod tests`
   or extends the one closing the file, counting only the test region as
   "already tested".
+- **`tested` member.** The LSP marks every `src.*` item the tests already
+  mention as a whole identifier, so `tfn*@src.fns?!tested` (typed, previewed,
+  or completed) writes tests only for the functions without one — the same
+  rule the code action uses. A test file with a source counts all of itself;
+  a Rust file that is its own source counts only from `#[cfg(test)]`.
 - **Guide: generating tests from code** (`docs/testing.md`) — the whole
   flow on one example with real outputs: `vars`, `tfn`/`tmeth`/`tfile`,
   filters, `:CodemmetSource`, the `codemmet.setSource` / `codemmet.context` /

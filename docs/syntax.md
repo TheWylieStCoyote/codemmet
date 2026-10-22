@@ -184,6 +184,15 @@ functions too), and `?all` drops it. See [source
 collections](context-codegen.md#source-collections-functions-types-and-methods)
 for the member names a filter can test.
 
+One member comes from the editor rather than the source: **`tested`** is set
+on every `src.*` item whose name the tests already mention, so
+`tfn*@src.fns?!tested` writes tests only for the functions that have none
+(and `?vis=public?!tested` keeps the default's public-only rule with it). In
+a test file with a source set, the whole file counts as tests; in a file
+that is its own source, only its test region does (Rust: from the first
+`#[cfg(test)]`). The CLI has no test buffer, so there nothing is `tested`
+and `?!tested` keeps everything.
+
 #### The repetition index `${i}`
 
 Within a repeated node, the variable `${i}` expands to the **1-based copy

@@ -101,6 +101,7 @@ Member vocabulary (all optional unless noted):
 | `vis` | normalized visibility: `public`, `private`, `protected` (always) | `public` |
 | `async` | present on async functions, display-ready | `async ` |
 | `static` | present on methods without a receiver / marked static | `static` |
+| `tested` | editor-only: present when the tests already mention the item (whole test file with a source set; a source file's own `#[cfg(test)]` region) | `tested` |
 | `receiver` | the receiver as written, when there is one | `&mut self`, `self`, `cls` |
 | `owner` | the type a method belongs to | `Point` |
 | `trait` | Rust only: the trait an `impl Trait for Type` method implements | `Display` |
