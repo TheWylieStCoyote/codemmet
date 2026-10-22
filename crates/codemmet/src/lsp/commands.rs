@@ -273,7 +273,7 @@ pub fn list(server: &mut Server, args: &AtArgs) -> Result<serde_json::Value, Com
                 "trigger": snippet.trigger,
                 "description": snippet.description,
                 "composite": snippet.composite.is_some(),
-                "activeContext": active_variant(snippet, scope, &ctx.raw_node_kinds, None)
+                "activeContext": active_variant(snippet, scope, &ctx.raw_node_kinds, None, (1, 1))
                     .and_then(|variant| variant.context.as_deref()),
                 "body": body,
                 "hint": hint,

@@ -8,6 +8,39 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Dispatch over every enum value, in every language.** The C, C++, Go,
+  JavaScript and TypeScript `case` and the Python `arm` bodies now read the
+  data-driven item, so `switch:c>case*@Color` and `match:c>arm*@Color`
+  write one case per variant (they used to write `case value:` n times). A
+  new `ifchain` trigger in every pack writes an `if` / `else if` chain
+  (Python `if` / `elif`) with one branch per variant — `ifchain:m*@Msg`
+  tests with `if let`, C and Go with `==`, JS/TS with `===`, Python with
+  `is`.
+- **"Fill … from `Enum`" code actions everywhere.** The Rust "Fill match
+  arms" action now has siblings: "Fill switch cases" (C, C++, Go,
+  JavaScript, TypeScript), "Fill match cases" (Python), and "Fill if chain"
+  (all six), which appends `else if` / `elif` branches for the unhandled
+  variants in the form the chain already uses, before a final `else`. Only
+  the enum an existing branch names is offered; an empty `match`/`switch`
+  offers every enum plus the builtins.
+- **Builtin collections.** `Option`, `Result`, `Ordering` and `bool` (Rust),
+  `bool` (Python, with `True`/`False`) and `bool`/`boolean` elsewhere are
+  always available, so `match:r>arm*@Result` needs no definition in sight.
+  A file's own type of the same name wins; `--repeat` wins over both.
+- **Positional `when` predicates and `${join}`.** `first`, `last` and `i=n`
+  select a variant by the copy's place in its repeat (with or without an
+  item), and a body starting with `${join}` continues the previous copy's
+  last line. `?first` / `?!first` / `?last` / `?i=n` also work as repeat
+  filters, after the member predicates.
+
+### Changed
+
+- **Enum variants are spelled as a use site needs them.** Extracted variants
+  are now `Msg::Quit` (Rust), `Color.RED` (Python), `Color.Red` (TypeScript
+  enum) and `Color::Red` (C++ `enum class`) — a bare `Quit =>` arm was a
+  catch-all binding and `case RED:` a capture pattern. C and Go stay bare,
+  as those languages spell them. The bare name is always the `name` member.
+
 - **`tested` ignores comments and strings.** The tree-sitter provider
   reports comment and string-literal ranges, and the `tested` mark (the
   `?!tested` filter, the "add missing tests" code action, and `scaffold`'s

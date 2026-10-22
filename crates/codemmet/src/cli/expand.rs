@@ -94,13 +94,14 @@ pub fn run(sources: &Sources, args: &ExpandArgs) -> ExitCode {
 
     let engine = Engine::with_registry(registry);
     let mut ctx = ExpansionContext::plain(args.base_indent.clone(), indent_unit);
+    // Collection precedence: builtins (`Option`, `bool`, …) < --source < --repeat.
+    ctx.collections = super::render::default_provider().builtin_collections(&args.lang);
     if let Some(path) = &args.source {
         match load_source(path, &args.lang) {
             Ok(source) => source.apply(&mut ctx),
             Err(msg) => return config_failure(&msg),
         }
     }
-    // Collection precedence: --source < --repeat.
     ctx.collections.extend(collections);
     match engine.expand(&abbr, &args.lang, &ctx, args.tabstops.into()) {
         Ok(expansion) => emit(&expansion, &args.lang, args.json),

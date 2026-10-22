@@ -435,6 +435,34 @@ if (condition) {
 
 `if` emits a conditional with a tabstop for the test. The `>` child operator fills the body, here with a `ret`.
 
+### `ifchain`
+
+If / else if chain, one branch per item.
+
+```sh
+codemmet expand --lang c "ifchain"
+```
+
+```c
+if (value == variant) {
+    
+}
+```
+
+```sh
+codemmet expand --lang c "ifchain:c*@Color" --repeat Color=RED,GREEN
+```
+
+```c
+if (c == RED) {
+    
+} else if (c == GREEN) {
+    
+}
+```
+
+Every copy after the first joins its `else if` onto the previous `}`, so the chain is one statement. In an editor the collection comes from the buffer's enum (`ifchain:c*@Color` with no `--repeat`), each value spelled as the language uses it.
+
 ### `inc`
 
 `#include` a system header.

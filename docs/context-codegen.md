@@ -165,7 +165,16 @@ tree-sitter. Three kinds are recognized:
   the shorthand `match:Msg>arm*`, which infers the subject) reads the variants
   of a same-file `enum Msg` and writes one arm each. In Go, an
   `iota` const group (`const ( Red Color = iota; Green; Blue )`) reads as an
-  enum, keyed by its declared type.
+  enum, keyed by its declared type. Each variant is spelled **the way a use
+  site needs it**: `Msg::Quit` in Rust (a bare `Quit` would be a catch-all
+  binding), `Color.RED` in Python, `Color.Red` for a TypeScript enum,
+  `Color::Red` for a C++ `enum class`, and bare `RED` / `Red` in C and Go,
+  where that is the spelling. The bare name is always the `name` member
+  (`${value.name}`). A few **well-known types** the language defines
+  elsewhere are always available as collections too — Rust `Option`
+  (`Some(..)`, `None`), `Result`, `Ordering` and `bool`; Python `bool`;
+  `bool` in the others — so `match:r>arm*@Result` works with no definition
+  in sight. A file's own type of the same name wins.
 - **Struct / record fields**, keyed by the type name, each carrying its declared
   `type`. `struct:Wrapper>field*@Point` copies `Point`'s fields, and
   `${value.type}` renders each field's type.
@@ -261,7 +270,7 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `optional` | optionality marker, e.g. `?` | TypeScript `x?: number` |
 | `vis` | visibility prefix, e.g. `pub ` | Rust field visibility |
 | `default` | initializer text | Python `x: int = 0` |
-| `name` | the bare name, when the value is a richer form | Rust variants (value `Write(..)`, name `Write`) |
+| `name` | the bare name, when the value is a qualified or richer form | enum variants (value `Msg::Write(..)`, name `Write`; `Color.RED` / `RED`) |
 | `value` | an enum member's assigned value | C `GREEN = 2`, TS `Green = 2`, Python `GREEN = 2` |
 | `params` | the declared parameter list as written, receiver removed | `src.*` functions and methods (`w: f64, h: f64`) |
 | `args` | the parameter **names**, comma-joined — for a call | `src.*` (`w, h`; Python keeps `*args, **kw`) |
@@ -459,9 +468,28 @@ infer a variable's type to find its definition, resolve imports, or read other
 files; that is a type-checker's job (rust-analyzer, tsc), not codemmet's.
 
 Rust payload variants are handled minimally: a tuple variant extracts as
-`Write(..)` and a struct variant as `Move { .. }`, so a generated `match` arm
-compiles without your having to name each field. The bindings are wildcards —
-replace them if you need the payload.
+`Msg::Write(..)` and a struct variant as `Msg::Move { .. }`, so a generated
+`match` arm compiles without your having to name each field. The bindings are
+wildcards — replace them if you need the payload.
+
+### Dispatching over every value
+
+Every language has two shapes for "handle each value differently", and both
+have a data-driven trigger that writes one branch per variant:
+
+| | Rust | C / C++ | Go | JavaScript / TypeScript | Python |
+| --- | --- | --- | --- | --- | --- |
+| cases | `match:m>arm*@Msg` | `switch:c>case*@Color` | `switch:c>case*@Color` | `switch:c>case*@Color` | `match:c>arm*@Color` |
+| if chain | `ifchain:m*@Msg` | `ifchain:c*@Color` | `ifchain:c*@Color` | `ifchain:c*@Color` | `ifchain:c*@Color` |
+
+`ifchain` opens with `if` and joins every later branch onto the previous `}`
+as `else if` (Python: `elif` lines), in the language's own test — `if let
+Msg::Write(..) = m` in Rust (so payload variants work), `c == RED` in C and
+Go, `c === Color.Red` in JavaScript/TypeScript, `c is Color.RED` in Python.
+Each branch body is a tabstop; `ifchain:c*@Color>pr` puts a child in every
+branch. It is built from two general snippet features — positional `when`
+variants and the `${join}` marker — described under [custom
+snippets](snippets.md#item-conditional-variants-when).
 
 ## Language coverage
 
@@ -477,12 +505,14 @@ has neither enums nor typed fields, which is why those cells are blank.
 ## Code actions
 
 Data-driven repeats are powerful but easy to miss — you have to know `arm*@`
-exists. So the same machinery also drives a **code action**, which any editor
+exists. So the same machinery also drives **code actions**, which any editor
 surfaces without you memorizing anything.
 
-Put the cursor inside a `match` over a value and trigger your editor's code
-actions (in Neovim, `vim.lsp.buf.code_action()`); for each `enum` in the file
-you get **"Fill match arms from `Name`"**:
+Put the cursor inside a dispatch over a value — a Rust `match`, a C, C++,
+Go, JavaScript or TypeScript `switch`, a Python `match`, or an `if` / `else
+if` chain in any of them — and trigger your editor's code actions (in
+Neovim, `vim.lsp.buf.code_action()`). For each enum that still has unhandled
+variants you get one action:
 
 ```rust
 enum Msg { Quit, Write(String), Move { x: i32 } }
@@ -496,16 +526,27 @@ applying it →
 
 ```rust
     match m {
-        Quit => todo!(),
-        Write(..) => todo!(),
-        Move { .. } => todo!(),
+        Msg::Quit => todo!(),
+        Msg::Write(..) => todo!(),
+        Msg::Move { .. } => todo!(),
     }
 ```
 
-Payload variants bind wildcards so the result compiles; arms already present are
-skipped, so it also completes a partial `match`. The edit is plain text (no
-tabstops), so it works in any LSP client — no codemmet plugin needed. This is
-Rust-only for now.
+The actions are **"Fill match arms from `Msg`"** (Rust), **"Fill switch cases
+from `Color`"** (`case Color.Red:` with the language's `break;`), **"Fill
+match cases from `Color`"** (Python `case Color.RED:`), and **"Fill if chain
+from `Color`"**, which appends an `else if` (Python `elif`) per missing
+variant in the form the chain already uses — `c == RED`, `c === Color.Red`,
+`c is Color.RED`, Rust `if let Msg::Write(..) = m` or `matches!(m, …)` —
+before a final `else` when there is one.
+
+Branches already present are never repeated (a variant counts as handled
+when a case or condition names it; a `default:` / `_` arm counts for
+nothing), so the same action completes a partial dispatch. Once any branch
+names an enum's variant, only that enum is offered; an empty `match` or
+`switch` offers every enum in the file plus the language's builtins
+(`Option`, `Result`, `bool`, …). The edits are plain text (no tabstops), so
+they work in any LSP client — no codemmet plugin needed.
 
 ### Add missing tests
 

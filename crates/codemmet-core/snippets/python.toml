@@ -125,8 +125,27 @@ match ${expr}:
 
 [snippets.arm]
 description = "case clause of a match statement"
+# `${value}` binds to a data-driven repeat item (`match:c>arm*@Color` writes
+# one `case Color.RED:` per member); with no data it falls back to the
+# placeholder.
 body = '''
-case ${1:pattern}:
+case ${value:pattern}:
+	${child}
+'''
+
+[snippets.ifchain]
+description = "if / elif chain, one branch per item (`ifchain:c*@Color`)"
+params = [{ name = "expr", kind = "ident", default = "value" }]
+scope = "conditional"
+body = '''
+elif ${expr} is ${value:variant}:
+	${child}
+'''
+
+[[snippets.ifchain.variants]]
+when = "first"
+body = '''
+if ${expr} is ${value:variant}:
 	${child}
 '''
 

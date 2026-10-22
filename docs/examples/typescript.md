@@ -615,6 +615,34 @@ if (condition) {
 
 Opens an `if (condition) { }` block. Nested triggers fill the body; pair it with `elif`/`el` siblings for full branches.
 
+### `ifchain`
+
+If / else if chain, one branch per item.
+
+```sh
+codemmet expand --lang typescript "ifchain"
+```
+
+```typescript
+if (value === variant) {
+  
+}
+```
+
+```sh
+codemmet expand --lang typescript "ifchain:c*@Color" --repeat Color=Color.Red,Color.Green
+```
+
+```typescript
+if (c === Color.Red) {
+  
+} else if (c === Color.Green) {
+  
+}
+```
+
+Every copy after the first joins its `else if` onto the previous `}`, so the chain is one statement. In an editor the collection comes from the buffer's enum (`ifchain:c*@Color` with no `--repeat`), each value spelled as the language uses it.
+
 ### `imp`
 
 A default import.

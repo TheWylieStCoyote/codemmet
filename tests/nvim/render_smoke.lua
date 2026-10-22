@@ -180,8 +180,8 @@ local prog_expected = {
   "    Move,",
   "}",
   "match m {",
-  "    Quit => ,",
-  "    Move => ,",
+  "    Msg::Quit => ,",
+  "    Msg::Move => ,",
   "}",
 }
 local prog_ok = vim.wait(5000, function()

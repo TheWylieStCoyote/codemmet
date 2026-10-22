@@ -410,7 +410,7 @@ fn render_tabstops_keep_preserves_progressive_context() {
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
     assert_eq!(
         stdout(&out),
-        "enum Msg {\n    Quit,\n    Move,\n}$1\n\nmatch m {\n    Quit => $2,\n    Move => $0,\n}\n"
+        "enum Msg {\n    Quit,\n    Move,\n}$1\n\nmatch m {\n    Msg::Quit => $2,\n    Msg::Move => $0,\n}\n"
     );
 }
 
@@ -523,7 +523,7 @@ fn progressive_enum_feeds_a_later_match() {
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
     assert_eq!(
         stdout(&out),
-        "enum Msg {\n    Quit,\n    Move,\n}\n\nmatch m {\n    Quit => ,\n    Move => ,\n}\n"
+        "enum Msg {\n    Quit,\n    Move,\n}\n\nmatch m {\n    Msg::Quit => ,\n    Msg::Move => ,\n}\n"
     );
 }
 
@@ -536,7 +536,7 @@ fn progressive_bare_star_uses_the_buffer_subject() {
     assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
     assert_eq!(
         stdout(&out),
-        "enum Msg {\n    Quit,\n    Move,\n}\nmatch Msg {\n    Quit => ,\n    Move => ,\n}\n"
+        "enum Msg {\n    Quit,\n    Move,\n}\nmatch Msg {\n    Msg::Quit => ,\n    Msg::Move => ,\n}\n"
     );
 }
 
@@ -588,7 +588,7 @@ fn progressive_flagship_needs_no_repeat_header() {
          enum Msg {\n    Quit,\n    Move,\n    Write,\n}\n\
          \n\
          impl Msg {\n    fn handle(&self) {\n\n    }\n}\n\
-         match self {\n    Quit => ,\n    Move => ,\n    Write => ,\n}\n"
+         match self {\n    Msg::Quit => ,\n    Msg::Move => ,\n    Msg::Write => ,\n}\n"
     );
 }
 

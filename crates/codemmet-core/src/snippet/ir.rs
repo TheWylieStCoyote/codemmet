@@ -95,4 +95,10 @@ pub enum Span {
     ChildSlot,
     /// `$0`: the final cursor position after all tabstops.
     FinalCursor,
+    /// `${join}`, allowed only at the very start of a body: when this
+    /// template is one copy of a repeat, its first line is appended to the
+    /// previous copy's last line instead of starting a new one — how an
+    /// `else if` branch lands on the `}` that closed the branch before it.
+    /// The first copy drops the marker (and the whitespace after it).
+    Join,
 }

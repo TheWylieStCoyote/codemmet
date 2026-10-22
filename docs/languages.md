@@ -68,6 +68,7 @@ id `rust` | extensions: `rs` | LSP ids: `rust` | default indent: 4 spaces
 | [`fori`](examples/rust.md#fori) | for loop over integer range |
 | [`hmap`](examples/rust.md#hmap) | HashMap binding |
 | [`if`](examples/rust.md#if) | if block |
+| [`ifchain`](examples/rust.md#ifchain) | if let / else if let chain, one branch per item (`ifchain:m*@Msg`) |
 | [`ifl`](examples/rust.md#ifl) | if let block |
 | [`impl`](examples/rust.md#impl) | inherent impl block |
 | [`implt`](examples/rust.md#implt) | trait impl block (impl Trait for Type) |
@@ -119,6 +120,7 @@ id `python` | extensions: `py` | LSP ids: `python` | default indent: 4 spaces
 | [`fori`](examples/python.md#fori) | for loop over integer range |
 | [`from`](examples/python.md#from) | from-import statement |
 | [`if`](examples/python.md#if) | if block |
+| [`ifchain`](examples/python.md#ifchain) | if / elif chain, one branch per item (`ifchain:c*@Color`) |
 | [`ifmain`](examples/python.md#ifmain) | __main__ guard block |
 | [`imp`](examples/python.md#imp) | import statement |
 | [`init`](examples/python.md#init) | __init__ method |
@@ -177,6 +179,7 @@ id `c` | extensions: `c`, `h` | LSP ids: `c` | default indent: 4 spaces
 | [`free`](examples/c.md#free) | free a pointer and null it |
 | [`guard`](examples/c.md#guard) | include guard |
 | [`if`](examples/c.md#if) | if block |
+| [`ifchain`](examples/c.md#ifchain) | if / else if chain, one branch per item (`ifchain:c*@Color`) |
 | [`inc`](examples/c.md#inc) | #include a system header |
 | [`incl`](examples/c.md#incl) | #include a local header |
 | [`main`](examples/c.md#main) | main entry point |
@@ -221,6 +224,7 @@ example, `enum` and `struct` override C's typedef forms.
 | [`free`](examples/cpp.md#free) | free a pointer and null it |
 | [`guard`](examples/cpp.md#guard) | include guard |
 | [`if`](examples/cpp.md#if) | if block |
+| [`ifchain`](examples/cpp.md#ifchain) | if / else if chain, one branch per item (`ifchain:c*@Color`) |
 | [`inc`](examples/cpp.md#inc) | #include a system header |
 | [`incl`](examples/cpp.md#incl) | #include a local header |
 | [`lam`](examples/cpp.md#lam) | lambda expression |
@@ -273,6 +277,7 @@ LSP ids: `javascript`, `javascriptreact` | default indent: 2 spaces
 | [`forin`](examples/javascript.md#forin) | for...in loop over object keys |
 | [`get`](examples/javascript.md#get) | getter backed by a private-by-convention field |
 | [`if`](examples/javascript.md#if) | if block |
+| [`ifchain`](examples/javascript.md#ifchain) | if / else if chain, one branch per item (`ifchain:c*@Color`) |
 | [`imp`](examples/javascript.md#imp) | default import |
 | [`impd`](examples/javascript.md#impd) | destructured (named) import |
 | [`jsonp`](examples/javascript.md#jsonp) | JSON.parse expression |
@@ -326,6 +331,7 @@ TypeScript starts from the JavaScript pack. Several triggers such as `afn` and
 | [`forin`](examples/typescript.md#forin) | for...in loop over object keys |
 | [`get`](examples/typescript.md#get) | getter backed by a private-by-convention field |
 | [`if`](examples/typescript.md#if) | if block |
+| [`ifchain`](examples/typescript.md#ifchain) | if / else if chain, one branch per item (`ifchain:c*@Color`) |
 | [`imp`](examples/typescript.md#imp) | default import |
 | [`impd`](examples/typescript.md#impd) | destructured (named) import |
 | [`impt`](examples/typescript.md#impt) | type-only import |
@@ -374,6 +380,7 @@ id `go` | extensions: `go` | LSP ids: `go` | default indent: tab
 | [`forr`](examples/go.md#forr) | range loop with index and value |
 | [`go`](examples/go.md#go) | goroutine over an anonymous function |
 | [`if`](examples/go.md#if) | if block |
+| [`ifchain`](examples/go.md#ifchain) | if / else if chain, one branch per item (`ifchain:c*@Color`) |
 | [`iface`](examples/go.md#iface) | interface type definition |
 | [`iferr`](examples/go.md#iferr) | if err != nil guard returning the error |
 | [`imp`](examples/go.md#imp) | import block |

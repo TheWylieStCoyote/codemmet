@@ -352,6 +352,11 @@ A body is LSP snippet syntax plus three codemmet extensions.
   body must reference a declared parameter, or `check` fails.
 - `${child}` marks where content nested under this trigger with `>` is placed.
   A body may contain **at most one** `${child}`.
+- `${join}`, at the very start of a body, makes a repeated copy's first line
+  **continue the previous copy's last line** instead of starting a new one —
+  how `ifchain` lands `} else if … {` on one line (Go requires it). The first
+  copy has nothing to join onto, so the marker and the whitespace after it
+  vanish. Anywhere else in a body it is an error.
 - `${i}` is the **repetition index**: the 1-based copy number when the trigger
   is repeated with `*n` (and `1` otherwise). A body of `field${i}: ${1:Type},`
   expanded with `field*3` yields `field1:`, `field2:`, `field3:`. `i` is a
@@ -608,11 +613,38 @@ fn ${value.owner|snake}_${value|snake}_works() {
 ```
 
 Over `src.Point.methods`, the `new` copy (a `static` item) takes the variant
-and `len` (an instance method) takes the default body. The rules:
+and `len` (an instance method) takes the default body.
 
-- A `when` variant fires only for a copy that **has** an item; the bare
-  trigger and literal `*n` repeats always use the default body (or a
-  `context` variant).
+Three predicates are **positional** — `first`, `last`, and `i=n` (or `i~glob`,
+against the 1-based copy number) — and test the copy's place in the repeat
+rather than a member, so they hold for literal `*n` copies too. The builtin
+`ifchain` is a default body of `${join} else if … {` with a `when = "first"`
+variant that opens the chain with `if`:
+
+```toml
+[snippets.ifchain]
+params = [{ name = "expr", kind = "ident", default = "value" }]
+body = '''
+${join} else if (${expr} == ${value:variant}) {
+	${child}
+}
+'''
+
+[[snippets.ifchain.variants]]
+when = "first"
+body = '''
+if (${expr} == ${value:variant}) {
+	${child}
+}
+'''
+```
+
+A `when = "last"` variant is how a comma-separated list drops its final comma.
+The rules:
+
+- A member `when` predicate fires only for a copy that **has** an item; the
+  bare trigger and literal `*n` repeats use the default body (or a `context`
+  variant) unless a positional predicate selects one.
 - `when` and `context` may be combined; both must then hold. At least one is
   required.
 - Predicates AND together (`when = "!receiver=self?vis=public"`); `all` is

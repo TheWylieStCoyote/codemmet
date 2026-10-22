@@ -693,6 +693,123 @@ fn expand_data_driven_repeat_fills_arms_from_flag() {
     );
 }
 
+/// Every language's case/arm body reads the item, and `ifchain` joins its
+/// `else if` branches onto the previous `}` (Python: `elif` lines).
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn expand_dispatch_from_an_enum_across_languages() {
+    let dir = scratch_dir("expand-dispatch");
+    let rs = dir.join("m.rs");
+    std::fs::write(
+        &rs,
+        "pub enum Msg { Quit, Write(String), Move { x: i32 } }\n",
+    )
+    .expect("fixture should be writable");
+    let c = dir.join("c.c");
+    std::fs::write(&c, "enum Color { RED, GREEN };\n").expect("fixture should be writable");
+    let py = dir.join("e.py");
+    std::fs::write(
+        &py,
+        "from enum import Enum\nclass Color(Enum):\n    RED = 1\n    GREEN = 2\n",
+    )
+    .expect("fixture should be writable");
+    let ts = dir.join("t.ts");
+    std::fs::write(&ts, "type Shape = \"circle\" | \"square\";\n")
+        .expect("fixture should be writable");
+    let go = dir.join("g.go");
+    std::fs::write(
+        &go,
+        "package p\ntype Color int\nconst (\n\tRed Color = iota\n\tGreen\n)\n",
+    )
+    .expect("fixture should be writable");
+    let expand = |lang: &str, src: &std::path::Path, abbr: &str| {
+        let out = run(
+            "expand-dispatch",
+            &[
+                "expand",
+                "--lang",
+                lang,
+                "--no-project",
+                "--source",
+                src.to_str().expect("UTF-8 path"),
+                abbr,
+            ],
+        );
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        stdout(&out)
+    };
+    // Rust variants are qualified patterns; `ifchain` tests them with `if let`.
+    assert_eq!(
+        expand("rust", &rs, "match:m>arm*@Msg"),
+        "match m {\n    Msg::Quit => ,\n    Msg::Write(..) => ,\n    Msg::Move { .. } => ,\n}\n"
+    );
+    assert_eq!(
+        expand("rust", &rs, "ifchain:m*@Msg"),
+        "if let Msg::Quit = m {\n    \n} else if let Msg::Write(..) = m {\n    \n} else if let Msg::Move { .. } = m {\n    \n}\n"
+    );
+    assert_eq!(
+        expand("c", &c, "switch:c>case*@Color"),
+        "switch (c) {\n    case RED:\n        \n        break;\n    case GREEN:\n        \n        break;\n}\n"
+    );
+    assert_eq!(
+        expand("c", &c, "ifchain:c*@Color"),
+        "if (c == RED) {\n    \n} else if (c == GREEN) {\n    \n}\n"
+    );
+    assert_eq!(
+        expand("python", &py, "match:c>arm*@Color"),
+        "match c:\n    case Color.RED:\n        \n    case Color.GREEN:\n        \n"
+    );
+    assert_eq!(
+        expand("python", &py, "ifchain:c*@Color"),
+        "if c is Color.RED:\n    \nelif c is Color.GREEN:\n    \n"
+    );
+    assert_eq!(
+        expand("typescript", &ts, "switch:s>case*@Shape"),
+        "switch (s) {\n  case \"circle\":\n    \n    break;\n  case \"square\":\n    \n    break;\n}\n"
+    );
+    // Go needs `} else if` on one line; the join provides it.
+    assert_eq!(
+        expand("go", &go, "ifchain:c*@Color"),
+        "if c == Red {\n\t\n} else if c == Green {\n\t\n}\n"
+    );
+}
+
+/// Well-known types need no definition in sight: `Option`, `Result`, `bool`.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn expand_builtin_collections_without_a_source() {
+    let out = run(
+        "expand-builtin",
+        &[
+            "expand",
+            "--lang",
+            "rust",
+            "--no-project",
+            "match:r>arm*@Result",
+        ],
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "match r {\n    Ok(..) => ,\n    Err(..) => ,\n}\n"
+    );
+    // `--repeat` still wins over a builtin of the same name.
+    let out = run(
+        "expand-builtin",
+        &[
+            "expand",
+            "--lang",
+            "rust",
+            "--no-project",
+            "--repeat",
+            "bool=yes,no",
+            "match:b>arm*@bool",
+        ],
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(stdout(&out), "match b {\n    yes => ,\n    no => ,\n}\n");
+}
+
 #[test]
 fn expand_data_driven_repeat_falls_back_without_data() {
     let out = run(
@@ -1306,8 +1423,13 @@ fn vars_prints_source_collections_for_a_file() {
         text.contains("src.types:\n  Point  kind=\"struct\""),
         "stdout: {text}"
     );
-    // The struct's fields still come along as the `Point` collection.
+    // The struct's fields still come along as the `Point` collection, and the
+    // language's builtin enums are listed too.
     assert!(text.contains("Point:\n  x  type=\"f64\""), "stdout: {text}");
+    assert!(
+        text.contains("Option:\n  Some(..)  name=\"Some\"\n  None\n"),
+        "stdout: {text}"
+    );
 }
 
 #[cfg(feature = "tree-sitter")]

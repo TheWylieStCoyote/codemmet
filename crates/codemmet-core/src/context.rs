@@ -433,13 +433,6 @@ pub trait ContextProvider {
         None
     }
 
-    /// The file-wide collections `doc` defines — enum variants, struct
-    /// fields, and the `src.*` API-surface collections (functions, types,
-    /// methods) — independent of any cursor. This is what an explicitly named
-    /// source file contributes to an expansion elsewhere (a test file).
-    ///
-    /// Defaults to empty: a provider without syntax awareness has nothing to
-    /// read. The tree-sitter provider implements it per language.
     /// Byte ranges of `doc` that are comments or string literals, so a
     /// textual heuristic ([`mark_tested_outside`]) can ignore them. Defaults
     /// to none: a syntax-unaware provider cannot tell.
@@ -447,7 +440,24 @@ pub trait ContextProvider {
         Vec::new()
     }
 
+    /// The file-wide collections `doc` defines — enum variants, struct
+    /// fields, and the `src.*` API-surface collections (functions, types,
+    /// methods) — independent of any cursor, plus the language's
+    /// [builtin collections](Self::builtin_collections) for names the file
+    /// does not define. This is what an explicitly named source file
+    /// contributes to an expansion elsewhere (a test file).
+    ///
+    /// Defaults to empty: a provider without syntax awareness has nothing to
+    /// read. The tree-sitter provider implements it per language.
     fn source_collections(&mut self, _doc: &DocSnapshot) -> BTreeMap<String, Collection> {
+        BTreeMap::new()
+    }
+
+    /// The enum-like collections a language defines outside any file —
+    /// Rust's `Option`, `Result`, `Ordering` and `bool`, Python's `bool`, … —
+    /// so `match:r>arm*@Result` works with no definition in sight. Defaults
+    /// to empty; the tree-sitter provider supplies them per language.
+    fn builtin_collections(&mut self, _language: &str) -> BTreeMap<String, Collection> {
         BTreeMap::new()
     }
 }

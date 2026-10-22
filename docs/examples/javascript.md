@@ -602,6 +602,34 @@ if (condition) {
 
 Composing `>ret` places a `return` inside the guarded block, the common early-return shape.
 
+### `ifchain`
+
+If / else if chain, one branch per item.
+
+```sh
+codemmet expand --lang javascript "ifchain"
+```
+
+```javascript
+if (value === variant) {
+  
+}
+```
+
+```sh
+codemmet expand --lang javascript "ifchain:c*@Color" --repeat Color=RED,GREEN
+```
+
+```javascript
+if (c === RED) {
+  
+} else if (c === GREEN) {
+  
+}
+```
+
+Every copy after the first joins its `else if` onto the previous `}`, so the chain is one statement. In an editor the collection comes from the buffer's enum (`ifchain:c*@Color` with no `--repeat`), each value spelled as the language uses it.
+
 ### `imp`
 
 A default import.

@@ -247,6 +247,9 @@ enum CSpan {
     Final,
     /// A `${child}` slot; eliminated by [`Composer::compose_node`].
     Slot,
+    /// A leading `${join}`: this copy's first line continues the previous
+    /// line; eliminated by [`join_copy`] before the lines leave the node.
+    Join,
 }
 
 /// How one declared parameter is filled for a node.
@@ -388,7 +391,13 @@ impl Composer<'_> {
             let index = u32::try_from(copy + 1).unwrap_or(u32::MAX);
             // The body for this copy: the first variant whose scope and/or
             // item predicates hold, else the default template.
-            let variant = active_variant(snippet, scope, self.raw_node_kinds, item.as_ref());
+            let variant = active_variant(
+                snippet,
+                scope,
+                self.raw_node_kinds,
+                item.as_ref(),
+                (index, items.len()),
+            );
             let template = variant.map_or(&snippet.template, |v| &v.template);
             // Effective requires: a selected variant that *declares*
             // `requires` (even empty) replaces the snippet-level list —
@@ -399,26 +408,16 @@ impl Composer<'_> {
                     .and_then(|v| v.requires.as_deref())
                     .unwrap_or(&snippet.requires),
             );
-            let auto_bind = (!value_arg && !template_uses_value(template))
-                .then(|| {
-                    base.iter()
-                        .position(|(_, b)| matches!(b, Binding::Free { .. }))
-                })
-                .flatten();
-            let bindings: Cow<[(String, Binding)]> = if value_arg {
-                let resolved = resolve_item_args(&node.args, item.as_ref(), outer.as_ref())
-                    .map_err(|message| RenderError::ArgBinding {
-                        trigger: snippet.trigger.clone(),
-                        message,
-                    })?;
-                Cow::Owned(bind_args(snippet, &resolved, remainder)?)
-            } else if let (Some(idx), Some(it)) = (auto_bind, item.as_ref()) {
-                let mut bound = base.clone();
-                bound[idx].1 = Binding::Bound(it.value.clone());
-                Cow::Owned(bound)
-            } else {
-                Cow::Borrowed(base.as_slice())
-            };
+            let bindings = copy_bindings(
+                snippet,
+                node,
+                remainder,
+                template,
+                &base,
+                value_arg,
+                item.as_ref(),
+                outer.as_ref(),
+            )?;
             let mut lines =
                 self.instantiate(template, &bindings, index, item.as_ref(), outer.as_ref());
             // Fail fast: repeat counts multiply through nesting, so the
@@ -460,7 +459,7 @@ impl Composer<'_> {
                 }
                 lines = splice_children(lines, children);
             }
-            out.extend(lines);
+            join_copy(&mut out, lines);
         }
         Ok(out)
     }
@@ -621,12 +620,29 @@ impl Composer<'_> {
             match collection {
                 Some(collection) => {
                     let predicates = filter.effective(default_filter);
-                    collection
+                    // Member predicates narrow the collection; positional
+                    // ones (`?!first`) then apply to the narrowed list, so
+                    // `first` is the first item that survived.
+                    let kept: Vec<&Item> = collection
                         .items
                         .iter()
-                        .filter(|item| predicates.iter().all(|p| p.matches(item)))
-                        .cloned()
-                        .map(Some)
+                        .filter(|item| {
+                            predicates
+                                .iter()
+                                .filter(|p| !p.is_positional())
+                                .all(|p| p.matches(item))
+                        })
+                        .collect();
+                    let count = kept.len();
+                    kept.into_iter()
+                        .enumerate()
+                        .filter(|(i, _)| {
+                            let index = u32::try_from(i + 1).unwrap_or(u32::MAX);
+                            predicates
+                                .iter()
+                                .all(|p| p.positional(index, count).unwrap_or(true))
+                        })
+                        .map(|(_, item)| Some(item.clone()))
                         .collect()
                 }
                 _ if known_empty => Vec::new(),
@@ -738,6 +754,7 @@ impl Composer<'_> {
                     ),
                     Span::ChildSlot => CSpan::Slot,
                     Span::FinalCursor => CSpan::Final,
+                    Span::Join => CSpan::Join,
                 });
             }
             lines.push(Line {
@@ -801,6 +818,69 @@ impl Composer<'_> {
     }
 }
 
+/// The parameter bindings for one copy of `node`: the explicit `${value}`
+/// arguments resolved against this copy's item, else the item auto-bound to
+/// the first free parameter (when the template does not consume `${value}`
+/// itself), else the item-independent `base` bindings.
+#[allow(clippy::too_many_arguments)]
+fn copy_bindings<'b>(
+    snippet: &CompiledSnippet,
+    node: &AbbrNode,
+    remainder: &str,
+    template: &Template,
+    base: &'b [(String, Binding)],
+    value_arg: bool,
+    item: Option<&Item>,
+    outer: Option<&Item>,
+) -> Result<Cow<'b, [(String, Binding)]>, RenderError> {
+    if value_arg {
+        let resolved = resolve_item_args(&node.args, item, outer).map_err(|message| {
+            RenderError::ArgBinding {
+                trigger: snippet.trigger.clone(),
+                message,
+            }
+        })?;
+        return Ok(Cow::Owned(bind_args(snippet, &resolved, remainder)?));
+    }
+    let auto_bind = (!template_uses_value(template))
+        .then(|| {
+            base.iter()
+                .position(|(_, b)| matches!(b, Binding::Free { .. }))
+        })
+        .flatten();
+    if let (Some(idx), Some(it)) = (auto_bind, item) {
+        let mut bound = base.to_vec();
+        bound[idx].1 = Binding::Bound(it.value.clone());
+        return Ok(Cow::Owned(bound));
+    }
+    Ok(Cow::Borrowed(base))
+}
+
+/// Append one copy's lines to the node's output, honoring a leading
+/// `${join}`: when the copy's first line starts with [`CSpan::Join`], that
+/// line continues the previous output line instead of starting its own (so
+/// `${join} else if …` lands on the `}` that closed the previous copy). The
+/// first copy has nothing to join onto, so the marker — and the whitespace
+/// written after it — simply vanishes. The marker never survives this step.
+fn join_copy(out: &mut Vec<Line>, mut lines: Vec<Line>) {
+    let joins = lines
+        .first()
+        .is_some_and(|line| matches!(line.spans.first(), Some(CSpan::Join)));
+    if joins {
+        let mut first = lines.remove(0);
+        first.spans.remove(0);
+        if let Some(prev) = out.last_mut() {
+            prev.spans.append(&mut first.spans);
+        } else {
+            if let Some(CSpan::Text(text)) = first.spans.first_mut() {
+                *text = text.trim_start().to_owned();
+            }
+            out.push(first);
+        }
+    }
+    out.extend(lines);
+}
+
 /// Replace the repetition-index variable `${i}` in `text` with `index`.
 ///
 /// A no-op (cheap clone) when `${i}` is absent, so it is safe to call on every
@@ -818,19 +898,24 @@ fn sub_repeat_index(text: &str, index: u32) -> String {
 ///
 /// The first matching variant wins. A variant's `context` matches when it is
 /// the scope's normalized name, or `ts:<kind>` with `<kind>` among the
-/// buffer's raw node kinds; its `when` predicates match when there is a
-/// data-driven `item` satisfying all of them (never without an item). A
-/// variant declaring both needs both. Public so listings (the LSP
-/// `codemmet.list` command) report the variant the renderer would pick
-/// without duplicating the rule. Selection changes only the template and
-/// requires — params and description always come from the snippet itself.
+/// buffer's raw node kinds; its `when` predicates must all hold: a member
+/// predicate needs a data-driven `item` satisfying it (never without an
+/// item), a positional one (`first`, `last`, `i=n`) tests `position` — the
+/// copy's 1-based index and the copy count — and so holds for literal `*n`
+/// copies too. A variant declaring both `context` and `when` needs both.
+/// Public so listings (the LSP `codemmet.list` command) report the variant
+/// the renderer would pick without duplicating the rule. Selection changes
+/// only the template and requires — params and description always come
+/// from the snippet itself.
 #[must_use]
 pub fn active_variant<'s>(
     snippet: &'s CompiledSnippet,
     scope: Scope,
     raw_node_kinds: &[String],
     item: Option<&Item>,
+    position: (u32, usize),
 ) -> Option<&'s CompiledVariant> {
+    let (index, count) = position;
     snippet.variants.iter().find(|variant| {
         let scope_ok = variant.context.as_deref().is_none_or(|context| {
             context.strip_prefix("ts:").map_or_else(
@@ -838,8 +923,10 @@ pub fn active_variant<'s>(
                 |kind| raw_node_kinds.iter().any(|k| k == kind),
             )
         });
-        let item_ok = variant.when.is_empty()
-            || item.is_some_and(|it| variant.when.iter().all(|p| p.matches(it)));
+        let item_ok = variant.when.iter().all(|p| {
+            p.positional(index, count)
+                .unwrap_or_else(|| item.is_some_and(|it| p.matches(it)))
+        });
         scope_ok && item_ok
     })
 }
@@ -1527,7 +1614,9 @@ fn renumber(mut lines: Vec<Line>, placeholders: &[Option<String>]) -> Vec<Number
                         }
                     }
                     // `compose_node` eliminates every slot.
-                    CSpan::Slot => NSpan::Text(String::new()),
+                    // Slots and join markers never reach renumbering (the
+                    // composer eliminates both); render as nothing if one did.
+                    CSpan::Slot | CSpan::Join => NSpan::Text(String::new()),
                 })
                 .collect(),
         })
@@ -1742,8 +1831,24 @@ mod tests {
     /// composite (alias) fixtures the composite tests exercise.
     fn fixture_set() -> SnippetSet {
         let mut snippets = base_fixtures();
+        snippets.extend(dispatch_fixtures());
         snippets.extend(composite_fixtures());
         SnippetSet::from_compiled(snippets)
+    }
+
+    /// Fixtures exercising positional `when` variants and `${join}`.
+    fn dispatch_fixtures() -> Vec<CompiledSnippet> {
+        vec![
+            // An if/else-if chain: the first copy opens with `if`, the rest
+            // join `else if` onto the previous `}`.
+            with_when(
+                snip("chain", vec![], "${join} else if ${value:x} {\n\t$0\n}\n"),
+                "first",
+                "if ${value:x} {\n\t$0\n}\n",
+            ),
+            // A comma-separated list whose last copy drops the comma.
+            with_when(snip("csv", vec![], "${value},\n"), "last", "${value}\n"),
+        ]
     }
 
     /// The plain (non-composite) snippet fixtures.
@@ -1999,6 +2104,76 @@ mod tests {
         // Bare trigger: no item, so the `when` variant never fires.
         let out = expand("tfn", &ctx, TabstopMode::Strip);
         assert_eq!(out.body, "fn test_() { (); }");
+    }
+
+    /// Positional `when` predicates pick a body by the copy's place in the
+    /// repeat, with or without an item, and `${join}` glues a copy's first
+    /// line onto the previous copy's last line.
+    #[test]
+    fn positional_variants_and_join() {
+        let mut ctx = ctx();
+        ctx.collections.insert(
+            "Msg".to_owned(),
+            Collection {
+                items: ["A", "B", "C"].into_iter().map(Item::new).collect(),
+            },
+        );
+        let out = expand("chain*@Msg", &ctx, TabstopMode::Strip);
+        assert_eq!(
+            out.body,
+            "if A {\n    \n} else if B {\n    \n} else if C {\n    \n}"
+        );
+        // Literal copies have no item, yet `first` still selects.
+        let out = expand("chain*2", &ctx, TabstopMode::Keep);
+        assert_eq!(
+            out.body,
+            "if ${1:x} {\n    $2\n} else if ${3:x} {\n    $0\n}"
+        );
+        // A lone copy is both first and last; a `${join}` with nothing before
+        // it just vanishes along with the space after it.
+        let out = expand("csv*@Msg", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "A,\nB,\nC");
+        let out = expand("csv", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "");
+        let mut lone = ctx.clone();
+        lone.collections.insert(
+            "One".to_owned(),
+            Collection {
+                items: vec![Item::new("A")],
+            },
+        );
+        let out = expand("chain*@One", &lone, TabstopMode::Strip);
+        assert_eq!(out.body, "if A {\n    \n}");
+    }
+
+    /// In a repeat filter, positional predicates apply after the member
+    /// predicates narrowed the collection.
+    #[test]
+    fn positional_filter_predicates_apply_after_member_filters() {
+        let ctx = fns_ctx();
+        // A written chain replaces the default filter, so `?!first` alone
+        // skips the first of all three; add the member predicate to keep it.
+        let out = expand("tfn*@src.fns?!first", &ctx, TabstopMode::Strip);
+        assert_eq!(
+            out.body,
+            "fn test_helper() { helper(); }\nfn test_fetch() { fetch(); }"
+        );
+        let out = expand("tfn*@src.fns?vis=public?!first", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "fn test_fetch() { fetch(); }");
+        let out = expand("tfn*@src.fns?all?i=1", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "fn test_area() { area(); }");
+        let out = expand("tfn*@src.fns?all?last", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "fn test_fetch() { fetch(); }");
+        let out = expand("tfn*@src.fns?vis=private?last", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "fn test_helper() { helper(); }");
+    }
+
+    /// `${join}` anywhere but the very start of a body is a template error.
+    #[test]
+    fn join_must_start_the_body() {
+        assert!(parse_template("${join} else {\n}\n").is_ok());
+        assert!(parse_template("x ${join}\n").is_err());
+        assert!(parse_template("x\n${join} y\n").is_err());
     }
 
     /// `*@outer.params` nests over the enclosing item's sub-collection.

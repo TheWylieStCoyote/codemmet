@@ -461,6 +461,34 @@ if condition {
 
 An `if` block with a `condition` spot. Nesting a child with `>` fills the body.
 
+### `ifchain`
+
+If let / else if let chain, one branch per item.
+
+```sh
+codemmet expand --lang rust "ifchain"
+```
+
+```rust
+if let pattern = value {
+    
+}
+```
+
+```sh
+codemmet expand --lang rust "ifchain:r*@Result"
+```
+
+```rust
+if let Ok(..) = r {
+    
+} else if let Err(..) = r {
+    
+}
+```
+
+Each branch tests with `if let`, so payload variants work like unit ones. `Result` is a builtin collection; in an editor the buffer's own enums are collections too, each variant spelled `Msg::Quit`, so `ifchain:m*@Msg` needs no `--repeat`, and a child (`ifchain:m*@Msg>pr`) is placed in every branch.
+
 ### `ifl`
 
 if let block.

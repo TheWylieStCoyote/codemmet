@@ -141,6 +141,7 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
     let engine = Engine::with_registry(registry);
     let indent = indent_unit.as_str();
     let mut ctx = ExpansionContext::plain(String::new(), indent_unit);
+    ctx.collections = super::render::default_provider().builtin_collections(&args.lang);
     // Without `--source`, the current file is its own source — as in the
     // editor, where a buffer's own definitions feed `src.*` — so `tfile` from
     // a Rust file appends the test module to that file. An unsaved `--from`

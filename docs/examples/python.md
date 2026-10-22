@@ -461,6 +461,32 @@ if condition:
 
 The `>` child operator nests a `print()` call inside the branch.
 
+### `ifchain`
+
+If / elif chain, one branch per item.
+
+```sh
+codemmet expand --lang python "ifchain"
+```
+
+```python
+if value is variant:
+    
+```
+
+```sh
+codemmet expand --lang python "ifchain:c*@Color" --repeat Color=Color.RED,Color.GREEN
+```
+
+```python
+if c is Color.RED:
+    
+elif c is Color.GREEN:
+    
+```
+
+Each branch tests with `is`, the idiomatic comparison for `Enum` members; later branches are `elif` lines. In an editor the collection comes from the buffer's `Enum` subclass (`ifchain:c*@Color` with no `--repeat`).
+
 ### `ifmain`
 
 `__main__` guard block.

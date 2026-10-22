@@ -1216,7 +1216,7 @@ mod tests {
         assert_eq!(member(&map, "src.Point.methods", "fmt", "vis"), "public");
         assert_eq!(member(&map, "src.methods", "fmt", "owner"), "Point");
         // The data-shape collections still come along.
-        assert_eq!(names(&map, "Msg"), ["Quit"]);
+        assert_eq!(names(&map, "Msg"), ["Msg::Quit"]);
     }
 
     #[cfg(feature = "lang-python")]

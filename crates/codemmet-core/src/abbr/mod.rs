@@ -192,11 +192,17 @@ impl Filter {
 
 /// One `?predicate` of a repeat filter: `key`, `!key`, `key=text`,
 /// `key~glob`, each optionally negated with a leading `!`.
+///
+/// Three keys are **positional** and test the copy's place in its repeat
+/// rather than a member: `first`, `last`, and `i` (compared to the 1-based
+/// repetition index, so `i=2` or `i~1*`). They hold with or without a
+/// data-driven item — see [`Predicate::positional`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Predicate {
     /// Leading `!`: the item must *not* satisfy the test.
     pub negate: bool,
-    /// The member name tested, or `value` for the item's own text.
+    /// The member name tested, `value` for the item's own text, or one of
+    /// the positional keys `first` / `last` / `i`.
     pub key: String,
     /// The comparison; `None` tests presence (non-empty).
     pub op: Option<PredicateOp>,
@@ -272,6 +278,37 @@ impl Predicate {
             Some(PredicateOp::Glob(glob)) => field.is_some_and(|f| glob_match(glob, f)),
         };
         hit != self.negate
+    }
+
+    /// Whether this predicate is positional (`first`, `last`, `i`): it tests
+    /// the copy's place in the repeat, not a member of its item.
+    #[must_use]
+    pub fn is_positional(&self) -> bool {
+        matches!(self.key.as_str(), "first" | "last" | "i")
+    }
+
+    /// Evaluate a positional predicate for copy `index` (1-based) of `count`.
+    ///
+    /// `first` holds for index 1, `last` for index `count`, and `i` compares
+    /// the index — `i=2` exactly, `i~1*` as a glob — as text. Negation
+    /// applies as usual. Returns `None` for a member predicate, which needs
+    /// an item ([`Predicate::matches`]).
+    #[must_use]
+    pub fn positional(&self, index: u32, count: usize) -> Option<bool> {
+        let hit = match self.key.as_str() {
+            "first" => index == 1,
+            "last" => usize::try_from(index).is_ok_and(|i| i == count),
+            "i" => {
+                let text = index.to_string();
+                match &self.op {
+                    None => true,
+                    Some(PredicateOp::Eq(expected)) => &text == expected,
+                    Some(PredicateOp::Glob(glob)) => glob_match(glob, &text),
+                }
+            }
+            _ => return None,
+        };
+        Some(hit != self.negate)
     }
 }
 

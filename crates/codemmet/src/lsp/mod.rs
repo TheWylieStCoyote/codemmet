@@ -579,9 +579,11 @@ impl Server {
         }
     }
 
-    /// `textDocument/codeAction`: code-generation edits at the cursor — today,
-    /// filling a `match` from an in-scope enum. Each is a plain-text
-    /// `WorkspaceEdit`, so any client applies it without the codemmet plugin.
+    /// `textDocument/codeAction`: code-generation edits at the cursor —
+    /// filling a `match`, `switch`, or `if` chain from an enum (see
+    /// `codemmet_tsctx::codegen`), and adding missing tests. Each is a
+    /// plain-text `WorkspaceEdit`, so any client applies it without the
+    /// codemmet plugin.
     fn handle_code_action(&mut self, request: Request) -> Response {
         let params: CodeActionParams = match serde_json::from_value(request.params) {
             Ok(params) => params,

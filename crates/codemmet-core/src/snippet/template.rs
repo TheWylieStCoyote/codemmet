@@ -40,6 +40,16 @@ pub fn parse_template(body: &str) -> Result<Template, TemplateError> {
         let line_no = index + 1;
         let (depth, content) = parse_indent(raw, line_no)?;
         let spans = parse_spans(content, line_no, &mut saw_child)?;
+        // `${join}` is positional by nature: only the body's very first
+        // token can continue the previous copy's last line.
+        if let Some(pos) = spans.iter().position(|s| matches!(s, Span::Join))
+            && (index > 0 || pos > 0)
+        {
+            return Err(err(
+                line_no,
+                "${join} is only allowed at the very start of the body",
+            ));
+        }
         lines.push(IrLine { depth, spans });
     }
     Ok(Template { lines })
@@ -184,41 +194,7 @@ fn parse_braced(
             // data-driven repeat items. Handled before the `}` check because of
             // the `.`/`|`/`:` suffixes.
             if name == "value" || name == "outer" {
-                let outer = name == "outer";
-                let member = if chars.peek() == Some(&'.') {
-                    chars.next();
-                    let mut key = String::new();
-                    while let Some(c) = chars.peek().copied() {
-                        if c.is_ascii_alphanumeric() || c == '_' {
-                            chars.next();
-                            key.push(c);
-                        } else {
-                            break;
-                        }
-                    }
-                    if key.is_empty() {
-                        return Err(err(line_no, "expected a member name after ${value."));
-                    }
-                    Some(key)
-                } else {
-                    None
-                };
-                let transform = parse_transform(chars, line_no)?;
-                return match chars.next() {
-                    Some('}') => Ok(Span::ItemValue {
-                        outer,
-                        member,
-                        transform,
-                        default: None,
-                    }),
-                    Some(':') => Ok(Span::ItemValue {
-                        outer,
-                        member,
-                        transform,
-                        default: Some(parse_placeholder(chars, line_no)?),
-                    }),
-                    _ => Err(err(line_no, "expected '}' or ':' in ${value}/${outer}")),
-                };
+                return parse_item_token(chars, line_no, name == "outer");
             }
             let transform = parse_transform(chars, line_no)?;
             if chars.next() != Some('}') {
@@ -243,12 +219,64 @@ fn parse_braced(
                     }
                     Ok(Span::RepeatIndex)
                 }
+                // `${join}` glues this copy's first line onto the previous
+                // copy's last line; it is only meaningful as the body's very
+                // first token, which the caller checks.
+                "join" => {
+                    if transform.is_some() {
+                        return Err(err(line_no, "${join} cannot take a case transform"));
+                    }
+                    Ok(Span::Join)
+                }
                 _ => Ok(Span::Param { name, transform }),
             }
         }
         Some('}') => Err(err(line_no, "empty '${}'")),
         Some(_) => Err(err(line_no, "invalid '${...}' expression")),
         None => Err(err(line_no, "unclosed '${'")),
+    }
+}
+
+/// The rest of a `${value…}` / `${outer…}` reference after the name: an
+/// optional `.member`, `|transform` and `:default`, then the closing `}`.
+fn parse_item_token(
+    chars: &mut Chars<'_>,
+    line_no: usize,
+    outer: bool,
+) -> Result<Span, TemplateError> {
+    let member = if chars.peek() == Some(&'.') {
+        chars.next();
+        let mut key = String::new();
+        while let Some(c) = chars.peek().copied() {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                chars.next();
+                key.push(c);
+            } else {
+                break;
+            }
+        }
+        if key.is_empty() {
+            return Err(err(line_no, "expected a member name after ${value."));
+        }
+        Some(key)
+    } else {
+        None
+    };
+    let transform = parse_transform(chars, line_no)?;
+    match chars.next() {
+        Some('}') => Ok(Span::ItemValue {
+            outer,
+            member,
+            transform,
+            default: None,
+        }),
+        Some(':') => Ok(Span::ItemValue {
+            outer,
+            member,
+            transform,
+            default: Some(parse_placeholder(chars, line_no)?),
+        }),
+        _ => Err(err(line_no, "expected '}' or ':' in ${value}/${outer}")),
     }
 }
 

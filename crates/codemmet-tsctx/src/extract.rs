@@ -8,6 +8,13 @@
 //!
 //! * **enum variants** (CX2) — keyed by the enum/type name (`Msg` → its
 //!   variants). Visible file-wide, since a definition can sit below its use.
+//!   A variant's value is spelled the way a *use site* needs it — qualified
+//!   where the language requires it (`Msg::Quit`, `Color.RED`, `Color.Red`,
+//!   a C++ `enum class`'s `Color::Red`), bare where it does not (C, Go) —
+//!   and the `name` member always carries the bare name. A few well-known
+//!   types the language defines elsewhere (`Option`, `Result`, `bool`, …)
+//!   are supplied as [builtin collections](builtin_enums) when the file does
+//!   not define a type of the same name.
 //! * **struct/record fields** (CX3) — keyed by the type name (`Point` → its
 //!   fields), each field carrying a `type` member for `${value.type}`. Also
 //!   file-wide.
@@ -58,18 +65,88 @@ pub fn file_collections(
     root: Node<'_>,
     text: &str,
 ) -> BTreeMap<String, Collection> {
-    let mut map = BTreeMap::new();
+    let mut map = enums(language, root, text);
     match language {
-        "rust" => rust_defs(root, text, &mut map),
-        "c" | "cpp" => c_defs(root, text, &mut map),
-        "typescript" => ts_defs(root, text, &mut map),
-        "go" => go_defs(root, text, &mut map),
-        "python" => python_defs(root, text, &mut map),
+        "rust" => rust_structs(root, text, &mut map),
+        "c" | "cpp" => c_structs(root, text, &mut map),
+        "typescript" => ts_interfaces(root, text, &mut map),
+        "go" => go_structs(root, text, &mut map),
+        "python" => python_dataclasses(root, text, &mut map),
         // JavaScript has no enum/struct definitions; only list bindings apply.
         _ => {}
     }
+    for (name, items) in builtin_enums(language) {
+        map.entry(name.to_owned())
+            .or_insert_with(|| Collection { items });
+    }
     crate::source::definitions(language, root, text, &mut map);
     map
+}
+
+/// The enum-like definitions of `root` only — enum variants, iota groups,
+/// literal unions, `Enum` subclasses — keyed by type name. This is what the
+/// "fill from an enum" code actions choose from (see [`crate::codegen`]);
+/// [`file_collections`] adds the structs and builtins on top.
+pub fn enums(language: &str, root: Node<'_>, text: &str) -> BTreeMap<String, Collection> {
+    let mut map = BTreeMap::new();
+    match language {
+        "rust" => rust_enums(root, text, &mut map),
+        "c" | "cpp" => c_enums(root, text, &mut map),
+        "typescript" => ts_enums(root, text, &mut map),
+        "go" => go_iota_groups(root, text, &mut map),
+        "python" => python_enums(root, text, &mut map),
+        _ => {}
+    }
+    map
+}
+
+/// Well-known enum-like types a language defines outside any file, as
+/// `(name, variants)`: the things one matches on constantly without ever
+/// seeing their definition. Each variant is spelled as a use site needs it,
+/// with the bare name as its `name` member. Rust: `Option` (`Some(..)`,
+/// `None`), `Result` (`Ok(..)`, `Err(..)`), `Ordering` (`Ordering::Less`, …)
+/// and `bool`; Python: `bool` (`True`, `False`); C, C++, Go, JavaScript and
+/// TypeScript: `bool` (`true`, `false`), which TypeScript also calls
+/// `boolean`. A file's own definition of the same name wins.
+#[must_use]
+pub fn builtin_enums(language: &str) -> Vec<(&'static str, Vec<Item>)> {
+    let variants = |specs: &[(&str, &str)]| -> Vec<Item> {
+        specs
+            .iter()
+            .map(|(value, name)| {
+                let mut item = Item::new(*value);
+                item.members.insert("name".to_owned(), (*name).to_owned());
+                item
+            })
+            .collect()
+    };
+    match language {
+        "rust" => vec![
+            (
+                "Option",
+                variants(&[("Some(..)", "Some"), ("None", "None")]),
+            ),
+            ("Result", variants(&[("Ok(..)", "Ok"), ("Err(..)", "Err")])),
+            (
+                "Ordering",
+                variants(&[
+                    ("Ordering::Less", "Less"),
+                    ("Ordering::Equal", "Equal"),
+                    ("Ordering::Greater", "Greater"),
+                ]),
+            ),
+            ("bool", variants(&[("true", "true"), ("false", "false")])),
+        ],
+        "python" => vec![("bool", variants(&[("True", "True"), ("False", "False")]))],
+        "typescript" => vec![
+            ("bool", variants(&[("true", "true"), ("false", "false")])),
+            ("boolean", variants(&[("true", "true"), ("false", "false")])),
+        ],
+        "c" | "cpp" | "go" | "javascript" => {
+            vec![("bool", variants(&[("true", "true"), ("false", "false")]))]
+        }
+        _ => Vec::new(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -133,30 +210,40 @@ fn insert_def(map: &mut BTreeMap<String, Collection>, name: &str, items: Vec<Ite
 // ---------------------------------------------------------------------------
 
 /// Enum-like definitions whose members are the direct named children of a
-/// container field. A member's value is its `name` field when it has one
-/// (Rust `enum_variant`, C `enumerator`, TS `enum_assignment`), else the
-/// member's own text (a bare TS enum member, a union `literal_type`). An
-/// assigned value, when the grammar exposes one (`GREEN = 2` — a C
-/// enumerator's or TS enum assignment's `value` field), is carried as the
-/// item's `value` member for `${value.value}`.
+/// container field. A member's bare name is its `name` field when it has one
+/// (C `enumerator`, TS `enum_assignment`), else the member's own text (a
+/// bare TS enum member, a union `literal_type`). The item's value is that
+/// name joined to the enum's name with the separator `qualify` returns for
+/// the definition (`Some(".")` → `Color.Red`; `None` → bare), and the bare
+/// name is kept as the `name` member. An assigned value, when the grammar
+/// exposes one (`GREEN = 2` — a C enumerator's or TS enum assignment's
+/// `value` field), is carried as the item's `value` member for
+/// `${value.value}`.
 fn extract_enum(
     root: Node<'_>,
     text: &str,
     def_kind: &str,
     container_field: &str,
     member_kinds: &[&str],
+    qualify: &dyn Fn(Node<'_>) -> Option<&'static str>,
     map: &mut BTreeMap<String, Collection>,
 ) {
     for def in descendants_of(root, &[def_kind]) {
         let Some(name) = field_text(def, "name", text) else {
             continue;
         };
+        let separator = qualify(def);
         let items = field_children(def, container_field)
             .into_iter()
             .filter(|m| member_kinds.contains(&m.kind()))
             .map(|m| {
-                let mut item =
-                    Item::new(field_text(m, "name", text).unwrap_or_else(|| node_text(m, text)));
+                let bare = field_text(m, "name", text).unwrap_or_else(|| node_text(m, text));
+                let mut item = Item::new(
+                    separator.map_or_else(|| bare.to_owned(), |sep| format!("{name}{sep}{bare}")),
+                );
+                if separator.is_some() {
+                    item.members.insert("name".to_owned(), bare.to_owned());
+                }
                 if let Some(value) = field_text(m, "value", text) {
                     item.members
                         .insert("value".to_owned(), value.trim().to_owned());
@@ -172,11 +259,12 @@ fn extract_enum(
 // Per-language definition passes (enums + structs)
 // ---------------------------------------------------------------------------
 
-fn rust_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+fn rust_enums(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     // Rust variants can carry a payload, so the item value is the match-ready
-    // pattern — `Quit`, `Write(..)`, `Move { .. }` — not just the name, so
-    // `match:Msg>arm*` produces arms that actually compile. The bare name is
-    // still reachable as the `name` member (`${value.name}`).
+    // *qualified* pattern — `Msg::Quit`, `Msg::Write(..)`, `Msg::Move { .. }`
+    // — so `match:Msg>arm*` produces arms that actually compile (a bare
+    // `Quit` would be a catch-all binding). The bare name is still reachable
+    // as the `name` member (`${value.name}`).
     for def in descendants_of(root, &["enum_item"]) {
         let Some(name) = field_text(def, "name", text) else {
             continue;
@@ -186,13 +274,17 @@ fn rust_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>)
             .filter(|v| v.kind() == "enum_variant")
             .filter_map(|v| {
                 let bare = field_text(v, "name", text)?;
-                let mut item = Item::new(rust_variant_pattern(v, text)?);
+                let pattern = rust_variant_pattern(v, text)?;
+                let mut item = Item::new(format!("{name}::{pattern}"));
                 item.members.insert("name".to_owned(), bare.to_owned());
                 Some(item)
             })
             .collect();
         insert_def(map, name, items);
     }
+}
+
+fn rust_structs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     for def in descendants_of(root, &["struct_item"]) {
         let Some(name) = field_text(def, "name", text) else {
             continue;
@@ -206,24 +298,31 @@ fn rust_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>)
     }
 }
 
-fn ts_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+fn ts_enums(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+    // `enum Color { Red }` is used as `Color.Red`.
     extract_enum(
         root,
         text,
         "enum_declaration",
         "body",
         &["property_identifier", "enum_assignment"],
+        &|_| Some("."),
         map,
     );
-    // `type Dir = "n" | "s"` — a union of literals reads as an enum.
+    // `type Dir = "n" | "s"` — a union of literals reads as an enum; its
+    // members are the literals themselves.
     extract_enum(
         root,
         text,
         "type_alias_declaration",
         "value",
         &["literal_type"],
+        &|_| None,
         map,
     );
+}
+
+fn ts_interfaces(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     for def in descendants_of(root, &["interface_declaration"]) {
         let Some(name) = field_text(def, "name", text) else {
             continue;
@@ -237,8 +336,26 @@ fn ts_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     }
 }
 
-fn c_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
-    extract_enum(root, text, "enum_specifier", "body", &["enumerator"], map);
+fn c_enums(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+    // A plain `enum Color { RED }` puts `RED` in the enclosing scope; a C++
+    // `enum class Color { Red }` scopes it as `Color::Red`.
+    extract_enum(
+        root,
+        text,
+        "enum_specifier",
+        "body",
+        &["enumerator"],
+        &|def| {
+            let mut cursor = def.walk();
+            def.children(&mut cursor)
+                .any(|c| matches!(c.kind(), "class" | "struct"))
+                .then_some("::")
+        },
+        map,
+    );
+}
+
+fn c_structs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     for def in descendants_of(root, &["struct_specifier", "union_specifier"]) {
         let Some(name) = field_text(def, "name", text) else {
             continue;
@@ -252,11 +369,11 @@ fn c_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     }
 }
 
-fn go_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+fn go_iota_groups(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     // `const ( Red Color = iota; Green; Blue )` — an iota const group is Go's
     // enum. It is keyed by the declared type of its **first** spec (an
     // untyped group has no name to key by and is skipped); the items are
-    // every spec's names, in order.
+    // every spec's names, in order — bare, as Go spells them.
     for decl in descendants_of(root, &["const_declaration"]) {
         let specs = descendants_of(decl, &["const_spec"]);
         let Some(ty) = specs.first().and_then(|s| field_text(*s, "type", text)) else {
@@ -281,6 +398,9 @@ fn go_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
         }
         insert_def(map, &clean_type(ty), items);
     }
+}
+
+fn go_structs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     // Go structs live under `type_spec name: … type: (struct_type …)`.
     for spec in descendants_of(root, &["type_spec"]) {
         let Some(name) = field_text(spec, "name", text) else {
@@ -310,7 +430,19 @@ fn go_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
     }
 }
 
-fn python_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+fn python_enums(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+    python_classes(root, text, true, map);
+}
+
+fn python_dataclasses(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
+    python_classes(root, text, false, map);
+}
+
+/// Python classes of one kind: `Enum` subclasses (`enums`), whose members
+/// are their assigned names spelled `Color.RED` (bare name in `name`), or
+/// every other class (dataclasses, plain classes), whose fields are their
+/// annotated attributes.
+fn python_classes(root: Node<'_>, text: &str, enums: bool, map: &mut BTreeMap<String, Collection>) {
     for class in descendants_of(root, &["class_definition"]) {
         let Some(name) = field_text(class, "name", text) else {
             continue;
@@ -318,6 +450,9 @@ fn python_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection
         let is_enum = field_children(class, "superclasses")
             .iter()
             .any(|s| node_text(*s, text).ends_with("Enum"));
+        if is_enum != enums {
+            continue;
+        }
         let mut items = Vec::new();
         for stmt in field_children(class, "body") {
             if stmt.kind() != "expression_statement" {
@@ -339,7 +474,14 @@ fn python_defs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection
             if !is_enum && annotated.is_none() {
                 continue;
             }
-            let mut item = Item::new(node_text(target, text));
+            let bare = node_text(target, text);
+            let mut item = if is_enum {
+                let mut item = Item::new(format!("{name}.{bare}"));
+                item.members.insert("name".to_owned(), bare.to_owned());
+                item
+            } else {
+                Item::new(bare)
+            };
             if let Some(ty) = annotated {
                 item.members
                     .insert("type".to_owned(), clean_type(node_text(ty, text)));

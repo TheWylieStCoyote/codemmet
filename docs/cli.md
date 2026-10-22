@@ -46,7 +46,7 @@ The `[ABBR]` positional argument is the abbreviation to expand. If you omit it, 
 | `--json` | Print one JSON object instead of plain text. See below. |
 | `--repeat <NAME=v1,v2,…>` | Supply a collection for a data-driven repeat (repeatable); each value may carry a member as `value:type`. See [data-driven repeats](context-codegen.md#data-driven-repeats). |
 | `--member <NAME.key=v1,v2,…>` | Attach a parallel value list as member `key` of a `--repeat` collection, one slot per item. |
-| `--source <FILE>` | A source file whose functions, types, methods, enums, and struct fields become collections (`src.fns`, `src.Point.methods`, `Msg`, …) and whose path sets the `${src.*}` variables. `--repeat` collections layer on top. See [source collections](context-codegen.md#source-collections-functions-types-and-methods). |
+| `--source <FILE>` | A source file whose functions, types, methods, enums, and struct fields become collections (`src.fns`, `src.Point.methods`, `Msg`, …) and whose path sets the `${src.*}` variables. `--repeat` collections layer on top. The language's well-known enums (`Option`, `Result`, `bool`, …) are available with or without a source. See [source collections](context-codegen.md#source-collections-functions-types-and-methods). |
 
 With `--tabstops keep`, codemmet emits snippet syntax:
 
@@ -234,8 +234,8 @@ enum Msg {
 }
 
 match m {
-    Quit => ,
-    Move => ,
+    Msg::Quit => ,
+    Msg::Move => ,
 }
 ```
 

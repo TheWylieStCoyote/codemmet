@@ -592,6 +592,34 @@ if condition {
 
 `if` emits the condition and an open body. Nest statements with `>`, such as the `return` here.
 
+### `ifchain`
+
+If / else if chain, one branch per item.
+
+```sh
+codemmet expand --lang go "ifchain"
+```
+
+```go
+if value == variant {
+	
+}
+```
+
+```sh
+codemmet expand --lang go "ifchain:c*@Color" --repeat Color=Red,Green
+```
+
+```go
+if c == Red {
+	
+} else if c == Green {
+	
+}
+```
+
+Every copy after the first joins its `else if` onto the previous `}`, so the chain is one statement (Go requires `} else if` on one line). In an editor the collection comes from the buffer's enum (`ifchain:c*@Color` with no `--repeat`), each value spelled as the language uses it.
+
 ### `iface`
 
 Interface type definition.

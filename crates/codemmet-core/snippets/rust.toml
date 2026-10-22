@@ -180,9 +180,30 @@ match ${1:expr} {
 [snippets.arm]
 description = "match arm"
 # `${value}` binds to a data-driven repeat item (`match:Msg>arm*` fills one arm
-# per variant); with no data it falls back to the `pattern` placeholder.
+# per variant, each a qualified pattern like `Msg::Write(..)`); with no data it
+# falls back to the `pattern` placeholder.
 body = '''
 ${value:pattern} => $0,
+'''
+
+[snippets.ifchain]
+description = "if let / else if let chain, one branch per item (`ifchain:m*@Msg`)"
+params = [{ name = "expr", kind = "ident", default = "value" }]
+scope = "conditional"
+# `if let` so payload variants (`Msg::Write(..)`) work like unit ones. Each
+# copy after the first joins its `else if` onto the previous `}`.
+body = '''
+${join} else if let ${value:pattern} = ${expr} {
+	${child}
+}
+'''
+
+[[snippets.ifchain.variants]]
+when = "first"
+body = '''
+if let ${value:pattern} = ${expr} {
+	${child}
+}
 '''
 
 [snippets.struct]

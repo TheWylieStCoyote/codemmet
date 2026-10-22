@@ -143,10 +143,32 @@ switch (${expr}) {
 
 [snippets.case]
 description = "case clause with break"
+# `${value}` binds to a data-driven repeat item (`switch:c>case*@Color` writes
+# one case per enum member — TypeScript inherits this); with no data it falls
+# back to the placeholder.
 body = '''
-case ${1:value}:
+case ${value:value}:
 	${child}
 	break;
+'''
+
+[snippets.ifchain]
+description = "if / else if chain, one branch per item (`ifchain:c*@Color`)"
+params = [{ name = "expr", kind = "ident", default = "value" }]
+scope = "conditional"
+# Each copy after the first joins its `else if` onto the previous `}`.
+body = '''
+${join} else if (${expr} === ${value:variant}) {
+	${child}
+}
+'''
+
+[[snippets.ifchain.variants]]
+when = "first"
+body = '''
+if (${expr} === ${value:variant}) {
+	${child}
+}
 '''
 
 [snippets.default]

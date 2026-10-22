@@ -964,12 +964,13 @@ impl ContextProvider for TreeSitterProvider {
         let text = doc.text.as_str();
         let offset = clamp_offset(text, offset);
         let indent = indent_unit_for(doc);
-        // Only Rust has an enum→match-arm fill today; other languages return
-        // nothing until their codegen shapes are added.
-        match doc.language.as_str() {
-            "rust" => codegen::match_arm_fills(tree.root_node(), text, offset, &indent.as_str()),
-            _ => Vec::new(),
-        }
+        codegen::dispatch_fills(
+            &doc.language,
+            tree.root_node(),
+            text,
+            offset,
+            &indent.as_str(),
+        )
     }
 
     fn import_scan(&mut self, doc: &DocSnapshot) -> Option<ImportScan> {
@@ -1010,6 +1011,13 @@ impl ContextProvider for TreeSitterProvider {
             return BTreeMap::new();
         };
         extract::file_collections(&doc.language, tree.root_node(), &doc.text)
+    }
+
+    fn builtin_collections(&mut self, language: &str) -> BTreeMap<String, Collection> {
+        extract::builtin_enums(language)
+            .into_iter()
+            .map(|(name, items)| (name.to_owned(), Collection { items }))
+            .collect()
     }
 }
 
@@ -1836,14 +1844,40 @@ mod tests {
             "rust",
             "enum Msg { Quit, Move { x: i32 }, Write(String) }\nfn f() { §\n}\n",
         );
-        // The value is the match-ready pattern: a unit variant is bare, a struct
-        // variant gets `{ .. }`, and a tuple variant gets `(..)`, so a generated
-        // `match:Msg>arm*` compiles without naming each payload field. The bare
-        // name stays reachable as the `name` member.
-        assert_eq!(values(&map, "Msg"), ["Quit", "Move { .. }", "Write(..)"]);
+        // The value is the match-ready *qualified* pattern: a unit variant is
+        // `Msg::Quit` (a bare `Quit` would be a catch-all binding), a struct
+        // variant gets `{ .. }`, and a tuple variant gets `(..)`, so a
+        // generated `match:Msg>arm*` compiles without naming each payload
+        // field. The bare name stays reachable as the `name` member.
+        assert_eq!(
+            values(&map, "Msg"),
+            ["Msg::Quit", "Msg::Move { .. }", "Msg::Write(..)"]
+        );
         let msg = &map["Msg"];
+        assert_eq!(msg.items[0].members["name"], "Quit");
         assert_eq!(msg.items[1].members["name"], "Move");
         assert_eq!(msg.items[2].members["name"], "Write");
+    }
+
+    #[cfg(feature = "lang-rust")]
+    #[test]
+    fn rust_builtin_enums_unless_the_file_defines_them() {
+        let map = cols(
+            "rust",
+            "enum Option { Mine }
+fn f() { §
+}
+",
+        );
+        // `Option` is the file's own; the other builtins come along.
+        assert_eq!(values(&map, "Option"), ["Option::Mine"]);
+        assert_eq!(values(&map, "Result"), ["Ok(..)", "Err(..)"]);
+        assert_eq!(map["Result"].items[0].members["name"], "Ok");
+        assert_eq!(values(&map, "bool"), ["true", "false"]);
+        assert_eq!(
+            values(&map, "Ordering"),
+            ["Ordering::Less", "Ordering::Equal", "Ordering::Greater"]
+        );
     }
 
     #[cfg(feature = "lang-rust")]
@@ -1893,11 +1927,16 @@ mod tests {
             "typescript",
             "enum Color { Red, Green = 2 }\ntype Dir = \"n\" | \"s\";\ninterface Point { x: number; y?: string; }\n§\n",
         );
-        assert_eq!(values(&map, "Color"), ["Red", "Green"]);
+        // Enum members are used as `Color.Red`; the bare name is `name`.
+        assert_eq!(values(&map, "Color"), ["Color.Red", "Color.Green"]);
+        assert_eq!(map["Color"].items[0].members["name"], "Red");
         // An assigned enum value is carried as the `value` member.
         assert!(!map["Color"].items[0].members.contains_key("value"));
         assert_eq!(map["Color"].items[1].members["value"], "2");
+        // A literal union's members are the literals themselves.
         assert_eq!(values(&map, "Dir"), ["\"n\"", "\"s\""]);
+        assert!(!map["Dir"].items[0].members.contains_key("name"));
+        assert_eq!(values(&map, "boolean"), ["true", "false"]);
         assert_eq!(values(&map, "Point"), ["x", "y"]);
         assert_eq!(map["Point"].items[0].members["type"], "number");
         // `?` optionality is display-ready: the marker itself, or absent.
@@ -1913,12 +1952,27 @@ mod tests {
             "c",
             "enum Color { RED, GREEN = 2, BLUE };\nstruct Point { int x; double y; };\nvoid f() { §; }\n",
         );
+        // C enumerators live in the enclosing scope: bare, no `name` member.
         assert_eq!(values(&map, "Color"), ["RED", "GREEN", "BLUE"]);
+        assert!(!map["Color"].items[0].members.contains_key("name"));
         // An enumerator's assigned value is carried as the `value` member.
         assert!(!map["Color"].items[0].members.contains_key("value"));
         assert_eq!(map["Color"].items[1].members["value"], "2");
         assert_eq!(values(&map, "Point"), ["x", "y"]);
         assert_eq!(map["Point"].items[0].members["type"], "int");
+        assert_eq!(values(&map, "bool"), ["true", "false"]);
+    }
+
+    #[cfg(feature = "lang-cpp")]
+    #[test]
+    fn cpp_scoped_enum_is_qualified_plain_enum_is_not() {
+        let map = cols(
+            "cpp",
+            "enum class Color { Red, Green };\nenum Plain { A, B };\nvoid f() { §; }\n",
+        );
+        assert_eq!(values(&map, "Color"), ["Color::Red", "Color::Green"]);
+        assert_eq!(map["Color"].items[0].members["name"], "Red");
+        assert_eq!(values(&map, "Plain"), ["A", "B"]);
     }
 
     #[cfg(feature = "lang-go")]
@@ -1954,9 +2008,12 @@ mod tests {
             "python",
             "class Color(Enum):\n    RED = 1\n    GREEN = 2\n\n@dataclass\nclass Point:\n    x: int\n    y: float = 0.5\n\nitems = [1, 2, 3]\n§\n",
         );
-        assert_eq!(values(&map, "Color"), ["RED", "GREEN"]);
+        // Enum members are used as `Color.RED`; the bare name is `name`.
+        assert_eq!(values(&map, "Color"), ["Color.RED", "Color.GREEN"]);
+        assert_eq!(map["Color"].items[0].members["name"], "RED");
         // An enum member's assigned value is the `value` member.
         assert_eq!(map["Color"].items[0].members["value"], "1");
+        assert_eq!(values(&map, "bool"), ["True", "False"]);
         assert_eq!(values(&map, "Point"), ["x", "y"]);
         assert_eq!(map["Point"].items[0].members["type"], "int");
         // An annotated field's initializer is the `default` member.
@@ -1972,18 +2029,27 @@ mod tests {
         assert_eq!(values(&map, "items"), ["1", "2", "3"]);
     }
 
-    // ---- Fill-match-arms code action (codegen) -------------------------
+    // ---- Fill-from-enum code actions (codegen) --------------------------
 
     /// Fill targets at the `§` cursor.
-    #[cfg(feature = "lang-rust")]
     fn fills(language: &str, fixture: &str) -> Vec<FillTarget> {
         let (doc, offset) = doc_at(language, fixture);
         TreeSitterProvider::new().fill_targets(&doc, offset)
     }
 
-    /// Apply a fill target to the fixture text (marker stripped).
-    #[cfg(feature = "lang-rust")]
-    fn applied(fixture: &str, target: &FillTarget) -> String {
+    /// The fill target titled `title` at the `§` cursor, applied to the
+    /// fixture text (marker stripped).
+    fn applied(language: &str, fixture: &str, title: &str) -> String {
+        let targets = fills(language, fixture);
+        let target = targets
+            .iter()
+            .find(|t| t.title == title)
+            .unwrap_or_else(|| {
+                panic!(
+                    "no action {title:?}; offered: {:?}",
+                    targets.iter().map(|t| &t.title).collect::<Vec<_>>()
+                )
+            });
         let mut text = fixture.replacen('§', "", 1);
         text.replace_range(target.range.clone(), &target.new_text);
         text
@@ -1994,11 +2060,25 @@ mod tests {
     fn fill_empty_match_from_enum() {
         let fixture = "enum Msg { Quit, Move, Write }\nfn f(m: Msg) {\n    match m {§}\n}\n";
         let targets = fills("rust", fixture);
-        assert_eq!(targets.len(), 1, "one enum in scope");
-        assert_eq!(targets[0].title, "Fill match arms from Msg");
+        // An empty match offers the file's enum and the builtins.
+        let titles: Vec<&str> = targets.iter().map(|t| t.title.as_str()).collect();
         assert_eq!(
-            applied(fixture, &targets[0]),
-            "enum Msg { Quit, Move, Write }\nfn f(m: Msg) {\n    match m {\n        Quit => todo!(),\n        Move => todo!(),\n        Write => todo!(),\n    }\n}\n"
+            titles,
+            [
+                "Fill match arms from Msg",
+                "Fill match arms from Option",
+                "Fill match arms from Result",
+                "Fill match arms from Ordering",
+                "Fill match arms from bool",
+            ]
+        );
+        assert_eq!(
+            applied("rust", fixture, "Fill match arms from Msg"),
+            "enum Msg { Quit, Move, Write }\nfn f(m: Msg) {\n    match m {\n        Msg::Quit => todo!(),\n        Msg::Move => todo!(),\n        Msg::Write => todo!(),\n    }\n}\n"
+        );
+        assert!(
+            applied("rust", fixture, "Fill match arms from Option")
+                .contains("        Some(..) => todo!(),\n        None => todo!(),\n")
         );
     }
 
@@ -2006,33 +2086,147 @@ mod tests {
     #[test]
     fn fill_match_binds_payload_variants() {
         let fixture = "enum Msg { Quit, Write(String), Move { x: i32 } }\nfn f(m: Msg) {\n    match m {§}\n}\n";
-        let targets = fills("rust", fixture);
+        let text = applied("rust", fixture, "Fill match arms from Msg");
         assert!(
-            targets[0].new_text.contains("Write(..) => todo!(),")
-                && targets[0].new_text.contains("Move { .. } => todo!(),"),
-            "payload variants bind wildcards: {:?}",
-            targets[0].new_text
+            text.contains("Msg::Write(..) => todo!(),")
+                && text.contains("Msg::Move { .. } => todo!(),"),
+            "payload variants bind wildcards: {text:?}"
         );
     }
 
     #[cfg(feature = "lang-rust")]
     #[test]
     fn fill_match_skips_covered_variants_and_appends() {
-        // One arm already present: only the missing variants are offered, and
-        // they append after the existing arm rather than replacing the body.
-        let fixture = "enum Msg { Quit, Move, Write }\nfn f(m: Msg) {\n    match m {\n        Quit => todo!(),§\n    }\n}\n";
+        // One arm already present: only that enum is offered, only its
+        // missing variants, appended after the existing arm. A `_` arm does
+        // not count as covering anything.
+        let fixture = "enum Msg { Quit, Move, Write }\nfn f(m: Msg) {\n    match m {\n        Msg::Quit => todo!(),§\n        _ => {}\n    }\n}\n";
         let targets = fills("rust", fixture);
-        assert_eq!(targets.len(), 1);
+        assert_eq!(targets.len(), 1, "{targets:?}");
         assert_eq!(
             targets[0].new_text,
-            "\n        Move => todo!(),\n        Write => todo!(),"
+            "\n        Msg::Move => todo!(),\n        Msg::Write => todo!(),"
         );
     }
 
     #[cfg(feature = "lang-rust")]
     #[test]
-    fn no_fill_outside_a_match() {
+    fn fill_if_let_chain_in_rust() {
+        let fixture = "enum Msg { Quit, Write(String), Move }\nfn f(m: Msg) {\n    if let Msg::Quit = m {§\n        todo!()\n    }\n}\n";
+        assert_eq!(
+            applied("rust", fixture, "Fill if chain from Msg"),
+            "enum Msg { Quit, Write(String), Move }\nfn f(m: Msg) {\n    if let Msg::Quit = m {\n        todo!()\n    } else if let Msg::Write(..) = m {\n        todo!()\n    } else if let Msg::Move = m {\n        todo!()\n    }\n}\n"
+        );
+        // `==` chains keep `==` for unit variants and use `matches!` for
+        // payload ones; new branches go before a final `else`.
+        let fixture = "enum Msg { Quit, Write(String), Move }\nfn f(m: Msg) {\n    if m == Msg::Quit {\n    } else if m == Msg::Move {§\n    } else {\n    }\n}\n";
+        assert_eq!(
+            applied("rust", fixture, "Fill if chain from Msg"),
+            "enum Msg { Quit, Write(String), Move }\nfn f(m: Msg) {\n    if m == Msg::Quit {\n    } else if m == Msg::Move {\n    } else if matches!(m, Msg::Write(..)) {\n        todo!()\n    } else {\n    }\n}\n"
+        );
+    }
+
+    #[cfg(feature = "lang-rust")]
+    #[test]
+    fn no_fill_outside_a_dispatch() {
         let targets = fills("rust", "enum Msg { Quit }\nfn f() {\n    §\n}\n");
         assert!(targets.is_empty());
+        // A fully covered match offers nothing either.
+        let targets = fills(
+            "rust",
+            "enum Msg { Quit }\nfn f(m: Msg) {\n    match m {\n        Msg::Quit => {}§\n    }\n}\n",
+        );
+        assert!(targets.is_empty(), "{targets:?}");
+    }
+
+    #[cfg(feature = "lang-c")]
+    #[test]
+    fn fill_c_switch_and_if_chain() {
+        let fixture = "enum Color { RED, GREEN, BLUE };\nvoid f(enum Color c) {\n    switch (c) {\n        case RED:§\n            break;\n        default:\n            break;\n    }\n}\n";
+        assert_eq!(
+            applied("c", fixture, "Fill switch cases from Color"),
+            "enum Color { RED, GREEN, BLUE };\nvoid f(enum Color c) {\n    switch (c) {\n        case RED:\n            break;\n        case GREEN:\n            break;\n        case BLUE:\n            break;\n        default:\n            break;\n    }\n}\n"
+        );
+        // Empty switch: cases between the braces (the builtin `bool` is
+        // offered too).
+        let fixture = "enum Color { RED, GREEN };\nvoid f(enum Color c) {\n    switch (c) {§}\n}\n";
+        let titles: Vec<String> = fills("c", fixture).into_iter().map(|t| t.title).collect();
+        assert_eq!(
+            titles,
+            [
+                "Fill switch cases from Color",
+                "Fill switch cases from bool"
+            ]
+        );
+        assert_eq!(
+            applied("c", fixture, "Fill switch cases from Color"),
+            "enum Color { RED, GREEN };\nvoid f(enum Color c) {\n    switch (c) {\n        case RED:\n            break;\n        case GREEN:\n            break;\n    }\n}\n"
+        );
+        let fixture = "enum Color { RED, GREEN, BLUE };\nvoid f(enum Color c) {\n    if (c == RED) {§\n    }\n}\n";
+        assert_eq!(
+            applied("c", fixture, "Fill if chain from Color"),
+            "enum Color { RED, GREEN, BLUE };\nvoid f(enum Color c) {\n    if (c == RED) {\n    } else if (c == GREEN) {\n    } else if (c == BLUE) {\n    }\n}\n"
+        );
+    }
+
+    #[cfg(feature = "lang-cpp")]
+    #[test]
+    fn fill_cpp_scoped_enum_switch() {
+        let fixture = "enum class Color { Red, Green };\nvoid f(Color c) {\n    switch (c) {\n        case Color::Red:§\n            break;\n    }\n}\n";
+        assert_eq!(
+            applied("cpp", fixture, "Fill switch cases from Color"),
+            "enum class Color { Red, Green };\nvoid f(Color c) {\n    switch (c) {\n        case Color::Red:\n            break;\n        case Color::Green:\n            break;\n    }\n}\n"
+        );
+    }
+
+    #[cfg(feature = "lang-go")]
+    #[test]
+    fn fill_go_switch_and_if_chain() {
+        let fixture = "package p\ntype Color int\nconst (\n\tRed Color = iota\n\tGreen\n\tBlue\n)\nfunc f(c Color) {\n\tswitch c {\n\tcase Red:§\n\tdefault:\n\t}\n}\n";
+        assert_eq!(
+            applied("go", fixture, "Fill switch cases from Color"),
+            "package p\ntype Color int\nconst (\n\tRed Color = iota\n\tGreen\n\tBlue\n)\nfunc f(c Color) {\n\tswitch c {\n\tcase Red:\n\tcase Green:\n\tcase Blue:\n\tdefault:\n\t}\n}\n"
+        );
+        let fixture = "package p\ntype Color int\nconst (\n\tRed Color = iota\n\tGreen\n)\nfunc f(c Color) {\n\tif c == Red {§\n\t} else {\n\t}\n}\n";
+        assert_eq!(
+            applied("go", fixture, "Fill if chain from Color"),
+            "package p\ntype Color int\nconst (\n\tRed Color = iota\n\tGreen\n)\nfunc f(c Color) {\n\tif c == Red {\n\t} else if c == Green {\n\t} else {\n\t}\n}\n"
+        );
+    }
+
+    #[cfg(feature = "lang-typescript")]
+    #[test]
+    fn fill_typescript_switch_from_enum_and_union() {
+        let fixture = "enum Color { Red, Green }\nfunction f(c: Color) {\n  switch (c) {\n    case Color.Red:§\n      break;\n  }\n}\n";
+        assert_eq!(
+            applied("typescript", fixture, "Fill switch cases from Color"),
+            "enum Color { Red, Green }\nfunction f(c: Color) {\n  switch (c) {\n    case Color.Red:\n      break;\n    case Color.Green:\n      break;\n  }\n}\n"
+        );
+        let fixture = "type Shape = \"circle\" | \"square\";\nfunction f(s: Shape) {\n  if (s === \"circle\") {§\n  }\n}\n";
+        assert_eq!(
+            applied("typescript", fixture, "Fill if chain from Shape"),
+            "type Shape = \"circle\" | \"square\";\nfunction f(s: Shape) {\n  if (s === \"circle\") {\n  } else if (s === \"square\") {\n  }\n}\n"
+        );
+    }
+
+    #[cfg(feature = "lang-python")]
+    #[test]
+    fn fill_python_match_and_if_chain() {
+        let fixture = "class Color(Enum):\n    RED = 1\n    GREEN = 2\n    BLUE = 3\n\ndef f(c):\n    match c:\n        case Color.RED:§\n            pass\n        case _:\n            pass\n";
+        assert_eq!(
+            applied("python", fixture, "Fill match cases from Color"),
+            "class Color(Enum):\n    RED = 1\n    GREEN = 2\n    BLUE = 3\n\ndef f(c):\n    match c:\n        case Color.RED:\n            pass\n        case Color.GREEN:\n            pass\n        case Color.BLUE:\n            pass\n        case _:\n            pass\n"
+        );
+        let fixture = "class Color(Enum):\n    RED = 1\n    GREEN = 2\n    BLUE = 3\n\ndef f(c):\n    if c is Color.RED:\n        pass\n    elif c is Color.GREEN:§\n        pass\n    else:\n        pass\n";
+        assert_eq!(
+            applied("python", fixture, "Fill if chain from Color"),
+            "class Color(Enum):\n    RED = 1\n    GREEN = 2\n    BLUE = 3\n\ndef f(c):\n    if c is Color.RED:\n        pass\n    elif c is Color.GREEN:\n        pass\n    elif c is Color.BLUE:\n        pass\n    else:\n        pass\n"
+        );
+        // Without a final else, the elif lands after the last branch.
+        let fixture = "class Color(Enum):\n    RED = 1\n    GREEN = 2\n\ndef f(c):\n    if c == Color.RED:§\n        pass\n    return 1\n";
+        assert_eq!(
+            applied("python", fixture, "Fill if chain from Color"),
+            "class Color(Enum):\n    RED = 1\n    GREEN = 2\n\ndef f(c):\n    if c == Color.RED:\n        pass\n    elif c == Color.GREEN:\n        pass\n    return 1\n"
+        );
     }
 }

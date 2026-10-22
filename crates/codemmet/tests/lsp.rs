@@ -244,15 +244,65 @@ fn code_action_fills_match_arms_from_a_buffer_enum() {
     // between the braces.
     let result = client.code_action(URI, 2, 13);
     let actions = result.as_array().expect("code actions are an array");
-    assert_eq!(actions.len(), 1, "actions: {result}");
+    // The buffer's enum first, then the builtins (`Option`, `Result`,
+    // `Ordering`, `bool`) an empty match might be over.
+    assert_eq!(actions.len(), 5, "actions: {result}");
     assert_eq!(actions[0]["title"], json!("Fill match arms from Msg"));
+    assert_eq!(actions[1]["title"], json!("Fill match arms from Option"));
     let edits = &actions[0]["edit"]["changes"][URI];
     assert_eq!(
         edits[0]["newText"],
         json!(
-            "\n        Quit => todo!(),\n        Move => todo!(),\n        Write => todo!(),\n    "
+            "\n        Msg::Quit => todo!(),\n        Msg::Move => todo!(),\n        Msg::Write => todo!(),\n    "
         )
     );
+    client.shutdown();
+}
+
+#[test]
+fn code_action_fills_a_c_switch_and_a_python_if_chain() {
+    // A `switch` with one case: only the enum that case names is offered, and
+    // the missing cases append after it, before `default`.
+    let (mut client, _) = LspClient::start("code-action-switch", &["utf-8"], &json!({}));
+    let c_uri = "file:///test/color.c";
+    client.open(
+        c_uri,
+        "c",
+        "enum Color { RED, GREEN, BLUE };\nvoid f(enum Color c) {\n    switch (c) {\n        case RED:\n            break;\n        default:\n            break;\n    }\n}\n",
+    );
+    let result = client.code_action(c_uri, 3, 14);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 1, "actions: {result}");
+    assert_eq!(actions[0]["title"], json!("Fill switch cases from Color"));
+    let edit = &actions[0]["edit"]["changes"][c_uri][0];
+    assert_eq!(
+        edit["newText"],
+        json!("\n        case GREEN:\n            break;\n        case BLUE:\n            break;")
+    );
+    // Inserted right after `break;` of the existing case (line 4).
+    assert_eq!(
+        edit["range"]["start"],
+        json!({ "line": 4, "character": 18 })
+    );
+
+    // A Python `if`/`elif` chain over an Enum: the missing `elif` lands before
+    // the final `else`, in the chain's own `is` form.
+    let py_uri = "file:///test/color.py";
+    client.open(
+        py_uri,
+        "python",
+        "from enum import Enum\n\nclass Color(Enum):\n    RED = 1\n    GREEN = 2\n\ndef f(c):\n    if c is Color.RED:\n        pass\n    else:\n        pass\n",
+    );
+    let result = client.code_action(py_uri, 8, 8);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 1, "actions: {result}");
+    assert_eq!(actions[0]["title"], json!("Fill if chain from Color"));
+    let edit = &actions[0]["edit"]["changes"][py_uri][0];
+    assert_eq!(
+        edit["newText"],
+        json!("elif c is Color.GREEN:\n        pass\n    ")
+    );
+    assert_eq!(edit["range"]["start"], json!({ "line": 9, "character": 4 }));
     client.shutdown();
 }
 
@@ -428,7 +478,7 @@ fn execute_command_expand_fills_arms_from_a_buffer_enum() {
     );
     assert_eq!(
         result["snippet"],
-        json!("match Msg {\n    Quit => $1,\n    Move => $2,\n    Write => $0,\n}")
+        json!("match Msg {\n    Msg::Quit => $1,\n    Msg::Move => $2,\n    Msg::Write => $0,\n}")
     );
     client.shutdown();
 }
@@ -453,7 +503,9 @@ fn execute_command_expand_arms_bind_payload_variants() {
     );
     assert_eq!(
         result["snippet"],
-        json!("match Msg {\n    Quit => $1,\n    Write(..) => $2,\n    Move { .. } => $0,\n}")
+        json!(
+            "match Msg {\n    Msg::Quit => $1,\n    Msg::Write(..) => $2,\n    Msg::Move { .. } => $0,\n}"
+        )
     );
     client.shutdown();
 }
@@ -1257,7 +1309,7 @@ fn execute_command_context_reports_collections_and_scopes() {
         .iter()
         .map(|item| item["value"].as_str().expect("value is a string"))
         .collect();
-    assert_eq!(values, ["Quit", "Move", "Write"]);
+    assert_eq!(values, ["Msg::Quit", "Msg::Move", "Msg::Write"]);
     // The buffer's own API surface is a collection too (`src.fns` holds
     // `main`), so a same-file `mod tests` can repeat over it.
     let fns = collections

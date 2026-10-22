@@ -162,6 +162,8 @@ of predicates written right after it, no spaces:
 | `?key=text` | member `key` equals `text` |
 | `?key~glob` | member `key` matches `glob` (`*` matches any run of characters) |
 | `?value~glob` / `?value=text` | the item's own text matches |
+| `?first` / `?last` | it is the first / last item left after the member predicates |
+| `?i=n` / `?i~glob` | its 1-based position (after the member predicates) is `n` / matches `glob` |
 | `?all` | clear the snippet's default filter (see below), keep everything |
 
 A repeat source may also be a **sub-collection of the enclosing item**,
@@ -271,7 +273,10 @@ same inside `struct`.
 Where does the collection come from?
 
 - **In an editor**, codemmet reads it from the buffer with tree-sitter. Three
-  kinds are recognized: an **enum**'s variants (`match:Msg>arm*@Msg`), a
+  kinds are recognized: an **enum**'s variants (`match:Msg>arm*@Msg`, each
+  spelled as a use site needs it — `Msg::Quit`, `Color.RED` — with the bare
+  name as `${value.name}`; the language's well-known `Option`, `Result`,
+  `bool`, … are always there too), a
   **struct**/record's fields with their declared types
   (`struct:Wrapper>field*@Point` → `x: i32,` / `y: f64,`), and an **in-scope
   list** binding's elements (`let items = [a, b, c]` → `arm*@items`). Enum and
