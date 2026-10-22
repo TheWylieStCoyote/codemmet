@@ -117,6 +117,10 @@ fn print_text(collections: &std::collections::BTreeMap<String, Collection>) {
         }
         first = false;
         emit!("{name}:");
+        if collection.items.is_empty() {
+            emit!("  (none)");
+            continue;
+        }
         let width = collection
             .items
             .iter()

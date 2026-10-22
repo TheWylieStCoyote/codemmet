@@ -150,6 +150,5 @@ description = "create <source>.test.ts beside the --source file with a Jest test
 [snippets.tfile.files.test]
 path = "${src.dir}/${src.stem}.test.ts"
 on_exists = "create"
-on_create = 'import * as ${src.stem|camel} from "${src.module}";'
 primary = true
-expands = "tfn*@src.fns+tmeth*@src.methods"
+expands = "(timport>tname*@src.fns?vis=public+tname*@src.types?vis=public)+tfn*@src.fns+tmeth*@src.methods"

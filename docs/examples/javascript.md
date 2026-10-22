@@ -828,12 +828,58 @@ Create <source>.test.js beside the --source file with a Jest test per exported f
 codemmet scaffold --lang javascript --source geometry.js tfile --write
 ```
 
-With the `geometry.js` from [`tfn`](#tfn), this creates `geometry.test.js` next to the source, starting with `import * as geometry from "./geometry";`, followed by
-the `tfn` tests for its public functions and the `tmeth` tests for its methods
-— exactly what `tfn*@src.fns+tmeth*@src.methods` expands to. Run without
-`--write` to see the manifest first; in Neovim, `:CodemmetScaffold tfile` uses
-the buffer's `:CodemmetSource`. Requires `--source`: the pieces' `path` /
-`on_create` use `${src.dir}`, `${src.stem}`, and `${src.module}`.
+With the `geometry.js` from [`tfn`](#tfn), this creates `geometry.test.js` next to the source, starting with a named import of its exported functions and types:
+
+```javascript
+import {
+  area,
+  Point,
+} from "./geometry";
+```
+
+followed by the `tfn` tests for its public functions and the `tmeth` tests
+for its methods — what
+`(timport>tname*@src.fns?vis=public+tname*@src.types?vis=public)+tfn*@src.fns+tmeth*@src.methods`
+expands to. A file without classes gets no method tests (its `src.methods`
+is empty). Run without `--write` to see the manifest first; in Neovim,
+`:CodemmetScaffold tfile` uses the buffer's `:CodemmetSource`. Requires
+`--source` (or `--from`): the piece's `path` uses `${src.dir}` and
+`${src.stem}`, the import `${src.module}`.
+
+### `timport`
+
+Named import from the --source module (data-driven: `timport>tname*@src.fns?vis=public`).
+
+```sh
+codemmet expand --lang javascript --source geometry.js "timport>tname*@src.fns?vis=public+tname*@src.types?vis=public"
+```
+
+```javascript
+import {
+  area,
+  Point,
+} from "./geometry";
+```
+
+The `tfile` scaffold's header. `${src.module}` is the source's import path
+(`./geometry`); the `tname` children fill the list, one exported name per
+line, so the import stays valid whatever the count — including zero.
+
+### `tname`
+
+One imported name, for `timport`'s import list (data-driven: `tname*@src.fns`).
+
+```sh
+codemmet expand --lang javascript --source geometry.js "tname*@src.fns?vis=public"
+```
+
+```javascript
+area,
+```
+
+`${value}` is the item's name; without a collection it falls back to a
+`name` tabstop. The trailing comma is valid in an import list, which is what
+lets `timport>tname*…` render any number of names.
 
 ### `tfn`
 

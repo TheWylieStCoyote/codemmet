@@ -286,7 +286,9 @@ LSP ids: `javascript`, `javascriptreact` | default indent: 2 spaces
 | [`test`](examples/javascript.md#test) | test case (jest/vitest style) |
 | [`tfile`](examples/javascript.md#tfile) | create <source>.test.js beside the --source file with a Jest test per exported fn/method (multi-file) |
 | [`tfn`](examples/javascript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
+| [`timport`](examples/javascript.md#timport) | named import from the --source module (data-driven: timport>tname*@src.fns?vis=public) |
 | [`tmeth`](examples/javascript.md#tmeth) | Jest test calling a method (data-driven: tmeth*@src.Type.methods; statics via the class, the constructor constructs) |
+| [`tname`](examples/javascript.md#tname) | one imported name, for timport's import list (data-driven: tname*@src.fns) |
 | [`todo`](examples/javascript.md#todo) | TODO comment |
 | [`try`](examples/javascript.md#try) | try/catch block |
 | [`while`](examples/javascript.md#while) | while loop |
@@ -339,7 +341,9 @@ TypeScript starts from the JavaScript pack. Several triggers such as `afn` and
 | [`test`](examples/typescript.md#test) | test case (jest/vitest style) |
 | [`tfile`](examples/typescript.md#tfile) | create <source>.test.ts beside the --source file with a Jest test per exported fn/method (multi-file) |
 | [`tfn`](examples/typescript.md#tfn) | Jest test calling a function (data-driven: tfn*@src.fns, exported non-async by default) |
+| [`timport`](examples/typescript.md#timport) | named import from the --source module (data-driven: timport>tname*@src.fns?vis=public) |
 | [`tmeth`](examples/typescript.md#tmeth) | Jest test calling a method (data-driven: tmeth*@src.Type.methods; statics via the class, the constructor constructs) |
+| [`tname`](examples/typescript.md#tname) | one imported name, for timport's import list (data-driven: tname*@src.fns) |
 | [`todo`](examples/typescript.md#todo) | TODO comment |
 | [`try`](examples/typescript.md#try) | try/catch block |
 | [`typ`](examples/typescript.md#typ) | type alias |

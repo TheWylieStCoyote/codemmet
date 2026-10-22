@@ -1699,3 +1699,41 @@ fn scaffold_tfile_targets_the_source_file_in_rust() {
         stderr(&out)
     );
 }
+
+/// The JavaScript `tfile` header is a named import of the exported functions
+/// and types (what the `tfn`/`tmeth` bodies call bare), and a file without
+/// classes gets no method test: `src.methods` is present and empty, so the
+/// repeat renders zero copies rather than one blank scaffold.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn scaffold_tfile_js_imports_names_and_skips_absent_methods() {
+    let dir = scratch_dir("scaffold-tfile-js");
+    let src = dir.join("geometry.js");
+    std::fs::write(
+        &src,
+        "export function area(w, h) { return w * h; }\nfunction helper() {}\n",
+    )
+    .expect("fixture should be writable");
+    let out = bin()
+        .args(["scaffold", "--lang", "javascript", "--json", "--root"])
+        .arg(&dir)
+        .arg("--source")
+        .arg(&src)
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let manifest: serde_json::Value =
+        serde_json::from_str(stdout(&out).trim()).expect("stdout is JSON");
+    assert_eq!(
+        manifest[0]["path"],
+        dir.join("geometry.test.js").display().to_string()
+    );
+    let content = manifest[0]["content"].as_str().expect("content");
+    assert_eq!(
+        content,
+        "import {\n  area,\n} from \"./geometry\";\n\ntest(\"area works\", () => {\n  expect(area(w, h)).toBe(expected);\n});"
+    );
+}

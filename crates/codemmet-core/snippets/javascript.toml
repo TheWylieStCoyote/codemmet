@@ -375,12 +375,30 @@ test("${value.owner}.${value} works", () => {
 });
 '''
 
+# The test file's header: a named import of the source's exported functions
+# and types, one per line (`timport>tname*@src.fns?vis=public+tname*@src.types?vis=public`),
+# so the `tfn`/`tmeth` bodies can call them bare. `${src.module}` is the
+# source's import path (`./geometry`).
+[snippets.timport]
+description = "named import from the --source module (data-driven: timport>tname*@src.fns?vis=public)"
+body = '''
+import {
+	${child}
+} from "${src.module}";
+
+'''
+
+[snippets.tname]
+description = "one imported name, for timport's import list (data-driven: tname*@src.fns)"
+body = '''
+${value:name},
+'''
+
 [snippets.tfile]
 description = "create <source>.test.js beside the --source file with a Jest test per exported fn/method (multi-file)"
 
 [snippets.tfile.files.test]
 path = "${src.dir}/${src.stem}.test.js"
 on_exists = "create"
-on_create = 'import * as ${src.stem|camel} from "${src.module}";'
 primary = true
-expands = "tfn*@src.fns+tmeth*@src.methods"
+expands = "(timport>tname*@src.fns?vis=public+tname*@src.types?vis=public)+tfn*@src.fns+tmeth*@src.methods"

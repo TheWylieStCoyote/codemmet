@@ -189,8 +189,10 @@ VALUE   := [^>+^(),?\s]+            ; `*` is allowed here (glob wildcard)
 Predicates chain with AND: `?vis=public?!async`. A filter applies to `*@name`
 and bare `*` repeats; on `*[…]` inline literals and `*n` counts it is a parse
 error. Filtering a collection to zero items renders **zero copies** — that is
-real information ("nothing public here"), unlike a *missing* collection,
-which keeps degrading to one blank tabstop copy.
+real information ("nothing public here") — and so does a present-but-empty
+collection (`src.fns`, `src.types`, and `src.methods` always exist for a
+source, empty when the file has none). Only a *missing* collection keeps
+degrading to one blank tabstop copy.
 
 Why glob and not regex: a regex needs characters the abbreviation grammar
 already owns (`(`, `)`, `+`, `^`), and the typed-in-an-editor use case is

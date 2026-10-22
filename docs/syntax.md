@@ -172,8 +172,9 @@ collections](context-codegen.md#source-collections-functions-types-and-methods))
 Predicates AND together — `tfn*@src.fns?vis=public?!async` keeps the public,
 non-async functions. A filter only ever narrows: filtering a collection down
 to nothing renders **zero** copies, which is real information ("nothing
-public here"), unlike a *missing* collection, which still degrades to one
-blank-tabstop copy. A filter on a literal count (`*3`) or an inline literal
+public here"). So does a collection that is present but empty — a source
+without classes has an empty `src.methods`, and `tmeth*@src.methods` writes
+nothing. Only a *missing* collection degrades to one blank-tabstop copy. A filter on a literal count (`*3`) or an inline literal
 (`*[…]`) is a parse error.
 
 A snippet may declare a **default filter** (`filter = "vis=public"` in its

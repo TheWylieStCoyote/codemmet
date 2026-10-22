@@ -604,9 +604,11 @@ impl Composer<'_> {
     ) -> Vec<Option<Item>> {
         // `*@outer.<key>`: a sub-collection of the enclosing data-driven item
         // (a function's `params`); anything else is a context collection.
-        // An enclosing item that simply has no such sub-collection (a
-        // parameterless function) is *known empty* — zero copies — whereas a
-        // missing context collection keeps the one-blank-copy scaffold.
+        // A collection that is present but empty (a file without classes has
+        // no `src.methods`), or filtered down to nothing, is *known empty* —
+        // zero copies — as is an enclosing item that simply has no such
+        // sub-collection (a parameterless function). Only a *missing*
+        // context collection keeps the one-blank-copy scaffold.
         let items_of = |name: &str, filter: &Filter| {
             let (collection, known_empty) = name.strip_prefix("outer.").map_or_else(
                 || (self.collections.get(name), false),
@@ -617,7 +619,7 @@ impl Composer<'_> {
                 },
             );
             match collection {
-                Some(collection) if !collection.items.is_empty() => {
+                Some(collection) => {
                     let predicates = filter.effective(default_filter);
                     collection
                         .items
@@ -2041,6 +2043,23 @@ mod tests {
         assert_eq!(out.body, "");
         let out = expand("tfn*@src.nope?vis=protected", &fns_ctx(), TabstopMode::Keep);
         assert_eq!(out.body, "fn test_$1() { $2(); }$0");
+    }
+
+    /// A collection that is present but empty (a file without classes has no
+    /// methods) is known empty: zero copies, with or without a filter — only
+    /// a *missing* collection degrades to the one-blank-copy scaffold.
+    #[test]
+    fn repeat_over_an_empty_collection_renders_nothing() {
+        let mut ctx = fns_ctx();
+        ctx.collections
+            .insert("src.methods".to_owned(), Collection { items: Vec::new() });
+        let out = expand("tfn*@src.methods", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "");
+        let out = expand("tfn*@src.methods?all", &ctx, TabstopMode::Strip);
+        assert_eq!(out.body, "");
+        // Keep mode leaves only the final cursor.
+        let out = expand("tfn*@src.methods", &ctx, TabstopMode::Keep);
+        assert_eq!(out.body, "$0");
     }
 
     /// `${src.key}` renders the variable when a source is known, re-cased by

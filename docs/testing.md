@@ -495,10 +495,12 @@ output of each trigger.
 - **`unknown trigger `tfn``, or `vars` is "unexpected argument".** The
   `codemmet` on your `PATH` predates source collections. Check `codemmet -v`
   and rebuild/reinstall.
-- **`tfn*@src.fns` renders one blank test with tabstops.** No source and no
-  functions in the buffer: the collection is missing, so the repeat degrades
-  to a scaffold. Pass `--source` (CLI) or set `:CodemmetSource` (editor);
-  `codemmet vars` on the source shows whether it yields `src.fns` at all.
+- **`tfn*@src.fns` renders one blank test with tabstops.** No source, and
+  the buffer is not a language with source collections: the collection is
+  missing, so the repeat degrades to a scaffold. Pass `--source` (CLI) or set
+  `:CodemmetSource` (editor); `codemmet vars` on the source shows what it
+  yields. (A source that simply has no functions renders *nothing*: its
+  `src.fns` exists and is empty.)
 - **Fewer tests than functions.** The default filter — check with
   `codemmet vars` which items are `vis="private"`, `async`, or `test`, and
   widen with `?all` or your own chain.

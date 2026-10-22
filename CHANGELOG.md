@@ -94,6 +94,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **No phantom test for a source without classes.** `src.fns`, `src.types`,
+  and `src.methods` now always exist for a source file (empty when it has
+  none), and a repeat over a present-but-empty collection renders zero
+  copies, so `tfile` and `tmeth*@src.methods` on a functions-only file no
+  longer emit one blank `test(". works", …)` / `def test__()` scaffold.
+  `codemmet vars` prints such collections as `(none)`.
+- **JavaScript/TypeScript `tfile` imports what its tests call.** The header
+  used to be `import * as geometry …` while the `tfn`/`tmeth` bodies call
+  `area(…)` and `new Point(…)` bare; it is now a named import of the exported
+  functions and types, built by the new `timport` / `tname` triggers.
 - **Closed pipes no longer panic.** `codemmet list | head` (and every other
   subcommand writing to stdout) used to end with a "failed printing to
   stdout: Broken pipe" backtrace once the reader closed; the CLI now exits

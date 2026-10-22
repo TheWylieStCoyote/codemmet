@@ -243,14 +243,15 @@ impl Defs {
         for (owner, items) in by_owner {
             map.insert(methods_key(&owner), Collection { items });
         }
+        // Always present, even empty: a file without classes has *no*
+        // methods, so `tmeth*@src.methods` renders zero copies — not the one
+        // blank-tabstop copy a *missing* collection degrades to.
         for (key, items) in [
             (FNS, self.fns),
             (TYPES, self.types),
             (METHODS, self.methods),
         ] {
-            if !items.is_empty() {
-                map.insert(key.to_owned(), Collection { items });
-            }
+            map.insert(key.to_owned(), Collection { items });
         }
     }
 }
@@ -1000,6 +1001,27 @@ mod tests {
             text: text.into(),
         };
         TreeSitterProvider::new().source_collections(&doc)
+    }
+
+    /// `src.fns`, `src.types`, and `src.methods` exist for every source file,
+    /// empty when the file has none: "no methods" is information a repeat
+    /// renders as zero copies, not a missing collection it scaffolds over.
+    #[test]
+    fn the_three_src_collections_are_always_present() {
+        let map = collections(
+            "javascript",
+            "export function area(w, h) { return w * h; }\n",
+        );
+        assert_eq!(names(&map, "src.fns"), ["area"]);
+        assert!(map["src.types"].items.is_empty());
+        assert!(map["src.methods"].items.is_empty());
+        let map = collections("python", "x = 1\n");
+        for key in ["src.fns", "src.types", "src.methods"] {
+            assert!(
+                map[key].items.is_empty(),
+                "{key} should be present and empty"
+            );
+        }
     }
 
     fn names(map: &BTreeMap<String, Collection>, key: &str) -> Vec<String> {
