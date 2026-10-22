@@ -1891,13 +1891,20 @@ fn frameworks_subcommand_lists_packs_and_selection() {
         Some(1),
         "own pack hides the inherited one"
     );
-    let out = run("frameworks-none", &["frameworks", "--lang", "go"]);
+    // C++ lists its own packs first, then the one inherited from C.
+    let out = run("frameworks-cpp", &["frameworks", "--lang", "cpp"]);
     assert_eq!(code(&out), 0);
-    assert!(
-        stdout(&out).contains("no test framework packs"),
-        "{}",
-        stdout(&out)
-    );
+    let text = stdout(&out);
+    let names: Vec<&str> = text
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            line.trim_start_matches([' ', '*'])
+                .split_whitespace()
+                .next()
+        })
+        .collect();
+    assert_eq!(names, ["catch2", "doctest", "unity"], "{text}");
 }
 
 /// The project config `.codemmet/config.toml` selects frameworks for every
@@ -2215,4 +2222,63 @@ fn list_prints_sorted_triggers_in_text_and_json() {
     );
     let out = run("list-unknown", &["list", "--lang", "klingon"]);
     assert_eq!(code(&out), 3);
+}
+
+/// The C, C++, and Go framework packs: Unity (with its runner), doctest (the
+/// `#define` precedes the include the `requires` would otherwise add), and
+/// testify (two imports, then a blank line).
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn unity_doctest_and_testify_tfiles() {
+    let dir = scratch_dir("framework-c-cpp-go");
+    std::fs::write(
+        dir.join("geometry.c"),
+        "int area(int w, int h) { return w * h; }\nstatic int helper(void) { return 1; }\n",
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("shapes.cpp"),
+        "double area(double w, double h) { return w * h; }\n",
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("geometry.go"),
+        "package geometry\n\nfunc Area(w, h int) int { return w * h }\n",
+    )
+    .expect("write");
+    let tfile = |framework: &str, lang: &str, src: &str| {
+        let out = bin()
+            .args([
+                "--framework",
+                framework,
+                "scaffold",
+                "--lang",
+                lang,
+                "--json",
+                "--root",
+            ])
+            .arg(&dir)
+            .arg("--source")
+            .arg(dir.join(src))
+            .arg("tfile")
+            .arg("--config")
+            .arg(&dir)
+            .output()
+            .expect("binary should run");
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        let manifest: serde_json::Value = serde_json::from_str(stdout(&out).trim()).expect("JSON");
+        manifest[0]["content"].as_str().expect("content").to_owned()
+    };
+    assert_eq!(
+        tfile("c=unity", "c", "geometry.c"),
+        "#include <unity.h>\n\n#include \"geometry.h\"\n\nvoid test_area(void) {\n    int result = area(w, h);\n    TEST_ASSERT_EQUAL(expected, result);\n}\n\nvoid setUp(void) {}\nvoid tearDown(void) {}\n\nint main(void) {\n    UNITY_BEGIN();\n    RUN_TEST(test_area);\n    return UNITY_END();\n}"
+    );
+    assert_eq!(
+        tfile("cpp=doctest", "cpp", "shapes.cpp"),
+        "#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN\n#include <doctest/doctest.h>\n#include \"shapes.h\"\n\nTEST_CASE(\"area works\") {\n    CHECK(area(w, h) == expected);\n}"
+    );
+    assert_eq!(
+        tfile("go=testify", "go", "geometry.go"),
+        "package geometry\n\nimport \"testing\"\nimport \"github.com/stretchr/testify/assert\"\n\nfunc TestArea(t *testing.T) {\n\tgot := Area(w, h)\n\tassert.Equal(t, want, got)\n}"
+    );
 }

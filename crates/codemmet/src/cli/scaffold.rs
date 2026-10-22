@@ -266,8 +266,11 @@ fn missing_requires(out: &FileOutput, lang: &str, action: Action) -> Result<Vec<
     if out.requires.is_empty() {
         return Ok(Vec::new());
     }
+    // A created file has only what its `on_create` header brings — which may
+    // already import the requirement, deliberately placed (a `#define` that
+    // must precede the include).
     let existing = match action {
-        Action::Create => String::new(),
+        Action::Create => out.on_create.clone().unwrap_or_default(),
         _ => std::fs::read_to_string(&out.path)
             .map_err(|err| format!("cannot read {}: {err}", out.path.display()))?,
     };
@@ -291,7 +294,10 @@ fn prepend_imports(content: &str, lines: &[String]) -> String {
         && content.starts_with("package ")
     {
         let (package_line, rest) = content.split_at(first_end + 1);
-        return format!("{package_line}\n{block}\n{}", rest.trim_start_matches('\n'));
+        return format!(
+            "{package_line}\n{block}\n\n{}",
+            rest.trim_start_matches('\n')
+        );
     }
     format!("{block}\n\n{content}")
 }

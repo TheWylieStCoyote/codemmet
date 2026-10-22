@@ -1,0 +1,74 @@
+# Test framework pack: doctest for C++.
+#
+# Selected with `frameworks.cpp = "doctest"`. `TEST_CASE` / `CHECK` bodies on
+# the same `tfn` / `tmeth` / `tfile` triggers; `tfile` defines
+# `DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN` so the test file is a runnable binary.
+
+[meta]
+language = "cpp"
+framework = "doctest"
+
+[snippets.tfn]
+description = "doctest TEST_CASE calling a function (data-driven: tfn*@src.fns, public by default)"
+filter = "vis=public?!test"
+requires = ["<doctest/doctest.h>"]
+scope = "fn-body"
+body = '''
+TEST_CASE("${value} works${value.overload}") {
+	CHECK(${value}(${value.args}) == ${1:expected});
+}
+'''
+
+[snippets.tmeth]
+description = "doctest TEST_CASE calling a method (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public"
+requires = ["<doctest/doctest.h>"]
+scope = "fn-body"
+body = '''
+TEST_CASE("${value.owner}::${value} works${value.overload}") {
+	${value.owner} subject$1;
+	CHECK(subject.${value}(${value.args}) == ${2:expected});
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "ctor?!params"
+body = '''
+TEST_CASE("${value.owner} constructs${value.overload}") {
+	${value.owner} subject;
+	$0
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "ctor"
+body = '''
+TEST_CASE("${value.owner} constructs${value.overload}") {
+	${value.owner} subject(${value.args});
+	$0
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "static"
+body = '''
+TEST_CASE("${value.owner}::${value} works${value.overload}") {
+	CHECK(${value.owner}::${value}(${value.args}) == ${1:expected});
+}
+'''
+
+[snippets.tfile]
+description = "create <source>_test.cpp beside the --source file with a doctest per public fn/method, with main (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/${src.stem}_test.cpp"
+on_exists = "create"
+# The define must precede doctest's include, so the header spells the include
+# out itself; the pieces' `requires` see it is already there.
+on_create = '''
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include <doctest/doctest.h>
+#include "${src.module}"
+'''
+primary = true
+expands = "tfn*@src.fns+tmeth*@src.methods"

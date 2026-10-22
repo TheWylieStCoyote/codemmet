@@ -335,7 +335,8 @@ depend on earlier ones.
   nearest wins, no opt-in needed — it only picks builtin packs), the global
   `--framework LANG=NAME`, or the LSP `frameworks` init option
   (`setup({ frameworks = … })`). Ships `python/unittest`, `python/asyncio`,
-  `rust/tokio`, `cpp/catch2`, `javascript/vitest`, `typescript/vitest`; the
+  `rust/tokio`, `c/unity`, `cpp/catch2`, `cpp/doctest`, `go/testify`,
+  `javascript/vitest`, `typescript/vitest`; the
   async variants live here (`when = "async"`), which is why the builtin
   `tfn` can keep skipping async. `codemmet frameworks` lists them.
 - ~~**Multi-file test scaffolds**~~ *(done)*: `tfile` in every pack —

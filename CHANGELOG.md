@@ -20,9 +20,12 @@ follows [Semantic Versioning](https://semver.org/).
   swap the test triggers for another framework: `python/unittest`
   (TestCase methods; `tfile` wraps them in a class), `python/asyncio`
   (pytest-asyncio: async functions get awaiting `@pytest.mark.asyncio`
-  tests), `rust/tokio` (`#[tokio::test] async fn … .await`), `cpp/catch2`
-  (`TEST_CASE` / `REQUIRE`), `javascript/vitest` and `typescript/vitest`
-  (Jest-shaped tests, `tfile` imports `test`/`expect`). Select one per
+  tests), `rust/tokio` (`#[tokio::test] async fn … .await`), `c/unity`
+  (`TEST_ASSERT_EQUAL`; `tfile` adds `setUp`/`tearDown` and a `RUN_TEST`
+  main), `cpp/catch2` (`TEST_CASE` / `REQUIRE`), `cpp/doctest` (`TEST_CASE` /
+  `CHECK`; `tfile` defines the main), `go/testify` (`assert.Equal`),
+  `javascript/vitest` and `typescript/vitest` (Jest-shaped tests, `tfile`
+  imports `test`/`expect`). Select one per
   language in the new project config `.codemmet/config.toml`
   (`[frameworks] python = "unittest"`, collected up the tree, nearest wins;
   honored by the LSP without the project-pack opt-in since it only picks
@@ -118,6 +121,11 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A created file's `on_create` header satisfies `requires`.** A piece
+  whose header already includes or imports what its triggers require no
+  longer gets a second copy woven in above it (the doctest `tfile` needs its
+  `#define` before the include). Go test files get a blank line between the
+  import block and the first function.
 - **C++ overloads are separate functions.** The C/C++ walker records a
   `signature` member (parameter types, normalized), merges a prototype or
   in-class declaration with its definition only when the signatures match,

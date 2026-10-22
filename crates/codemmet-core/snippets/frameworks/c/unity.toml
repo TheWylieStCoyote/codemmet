@@ -1,0 +1,53 @@
+# Test framework pack: Unity (ThrowTheSwitch) for C.
+#
+# Selected with `frameworks.c = "unity"`. Replaces the bare `assert` tests
+# with `TEST_ASSERT_EQUAL`, and `tfile` adds the `setUp` / `tearDown` / `main`
+# runner Unity needs.
+
+[meta]
+language = "c"
+framework = "unity"
+
+[snippets.tfn]
+description = "Unity test calling a function (data-driven: tfn*@src.fns, non-static value-returning by default)"
+filter = "vis=public?ret?!test"
+requires = ["<unity.h>"]
+scope = "fn-body"
+body = '''
+void test_${value}(void) {
+	${value.ret:int} result = ${value}(${value.args});
+	TEST_ASSERT_EQUAL(${1:expected}, result);
+}
+'''
+
+[snippets.trun]
+description = "Unity runner: setUp/tearDown and a main that RUN_TESTs each function (data-driven: trun>trt*@src.fns)"
+requires = ["<unity.h>"]
+body = '''
+
+void setUp(void) {}
+void tearDown(void) {}
+
+int main(void) {
+	UNITY_BEGIN();
+	${child}
+	return UNITY_END();
+}
+'''
+
+[snippets.trt]
+description = "one RUN_TEST line, for trun's main (data-driven: trt*@src.fns)"
+filter = "vis=public?ret?!test"
+body = '''
+RUN_TEST(test_${value:name});
+'''
+
+[snippets.tfile]
+description = "create test_<source>.c beside the --source file with a Unity test per value-returning fn and a runner (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/test_${src.stem}.c"
+on_exists = "create"
+on_create = '#include "${src.module}"'
+primary = true
+expands = "tfn*@src.fns+trun>trt*@src.fns"

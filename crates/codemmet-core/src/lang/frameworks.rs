@@ -49,10 +49,28 @@ pub const FRAMEWORKS: &[Framework] = &[
         source: include_str!("../../snippets/frameworks/rust/tokio.toml"),
     },
     Framework {
+        language: "c",
+        name: "unity",
+        description: "Unity TEST_ASSERT_EQUAL tests; tfile adds setUp/tearDown and a RUN_TEST main",
+        source: include_str!("../../snippets/frameworks/c/unity.toml"),
+    },
+    Framework {
         language: "cpp",
         name: "catch2",
         description: "Catch2 v3 TEST_CASE / REQUIRE instead of GoogleTest",
         source: include_str!("../../snippets/frameworks/cpp/catch2.toml"),
+    },
+    Framework {
+        language: "cpp",
+        name: "doctest",
+        description: "doctest TEST_CASE / CHECK instead of GoogleTest; tfile defines the main",
+        source: include_str!("../../snippets/frameworks/cpp/doctest.toml"),
+    },
+    Framework {
+        language: "go",
+        name: "testify",
+        description: "testing.T tests asserting with testify's assert.Equal",
+        source: include_str!("../../snippets/frameworks/go/testify.toml"),
     },
     Framework {
         language: "typescript",
@@ -122,6 +140,11 @@ mod tests {
         );
         assert!(find("cpp", "catch2").is_some());
         assert!(find("c", "catch2").is_none(), "C does not inherit C++");
+        assert_eq!(
+            find("cpp", "unity").map(|f| f.language),
+            Some("c"),
+            "C++ inherits C's"
+        );
         assert!(find("python", "nope").is_none());
         assert!(find("nolang", "unittest").is_none());
     }
@@ -139,7 +162,14 @@ mod tests {
         );
         let names: Vec<&str> = for_language("python").iter().map(|f| f.name).collect();
         assert_eq!(names, ["unittest", "asyncio"]);
-        assert!(for_language("go").is_empty());
+        let names: Vec<&str> = for_language("cpp").iter().map(|f| f.name).collect();
+        assert_eq!(
+            names,
+            ["catch2", "doctest", "unity"],
+            "own packs first, then C's"
+        );
+        let names: Vec<&str> = for_language("go").iter().map(|f| f.name).collect();
+        assert_eq!(names, ["testify"]);
     }
 
     /// Every builtin framework pack parses, targets the language it is filed

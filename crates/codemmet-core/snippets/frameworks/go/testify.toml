@@ -1,0 +1,33 @@
+# Test framework pack: testify for Go.
+#
+# Selected with `frameworks.go = "testify"`. The `testing.T` tests use
+# `assert.Equal` instead of a hand-written `if got != want`.
+
+[meta]
+language = "go"
+framework = "testify"
+
+[snippets.tfn]
+description = "testing.T test calling a function with testify's assert (data-driven: tfn*@src.fns, exported by default)"
+filter = "vis=public?!test"
+requires = ["testing", "github.com/stretchr/testify/assert"]
+scope = "fn-body"
+body = '''
+func Test${value|pascal}(t *testing.T) {
+	got := ${value}(${value.args})
+	assert.Equal(t, ${1:want}, got)
+}
+'''
+
+[snippets.tmeth]
+description = "testing.T test calling a method with testify's assert (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public?!ctor"
+requires = ["testing", "github.com/stretchr/testify/assert"]
+scope = "fn-body"
+body = '''
+func Test${value.owner|pascal}${value|pascal}(t *testing.T) {
+	subject := ${value.owner}{$1}
+	got := subject.${value}(${value.args})
+	assert.Equal(t, ${2:want}, got)
+}
+'''

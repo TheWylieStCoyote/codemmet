@@ -404,8 +404,9 @@ expressive:
 `tfn*@src.fns?value~parse_*`, `tmeth*@src.methods?!ctor`, `?all`.
 
 **Pick a test framework.** The builtin bodies are pytest, `#[test]`,
-GoogleTest, and Jest. For unittest, pytest-asyncio, tokio, Catch2, or Vitest,
-select the builtin [framework pack](snippets.md#test-framework-packs) instead
+GoogleTest, bare `assert`, `testing.T`, and Jest. For unittest,
+pytest-asyncio, tokio, Unity, Catch2, doctest, testify, or Vitest, select the
+builtin [framework pack](snippets.md#test-framework-packs) instead
 of rewriting the triggers — in the project:
 
 ```toml

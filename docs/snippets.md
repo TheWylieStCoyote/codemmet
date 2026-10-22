@@ -99,7 +99,11 @@ compiled into the binary; `codemmet frameworks` lists them:
 python:   unittest  unittest.TestCase methods (self.assertEqual); tfile wraps them in a TestCase
           asyncio   pytest with pytest-asyncio: async functions get @pytest.mark.asyncio tests that await
 rust:     tokio     async functions get #[tokio::test] async tests that .await
+c:        unity     Unity TEST_ASSERT_EQUAL tests; tfile adds setUp/tearDown and a RUN_TEST main
 cpp:      catch2    Catch2 v3 TEST_CASE / REQUIRE instead of GoogleTest
+          doctest   doctest TEST_CASE / CHECK instead of GoogleTest; tfile defines the main
+          unity     (inherited from C)
+go:       testify   testing.T tests asserting with testify's assert.Equal
 javascript / typescript:
           vitest    Vitest: Jest-shaped tests, tfile imports test/expect from "vitest"
 ```
