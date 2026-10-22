@@ -50,6 +50,7 @@ drive the real plugin against a freshly built server (they are not part of
 cargo build -p codemmet
 nvim --headless --clean -l tests/nvim/smoke.lua     # expand, wrap, capture, scaffold, preview, …
 nvim --headless --clean -l tests/nvim/source.lua    # :CodemmetSource → tfn*@src.fns in a test buffer
+nvim --headless --clean -l tests/nvim/scaffold_all.lua  # scaffold = { interactive = "all" }: live tabstops per file
 ```
 
 Each script prints one `… scenario passed` line per scenario and exits

@@ -2012,3 +2012,56 @@ fn unittest_tfile_wraps_tests_in_a_testcase() {
         "import unittest\n\nfrom geometry import *\n\nclass TestGeometry(unittest.TestCase):\n    def test_area(self):\n        result = area(w, h)\n        self.assertEqual(result, expected)"
     );
 }
+
+/// `--all-tabstops` with `--tabstops keep --json` adds a `snippet` field (the
+/// tabstop-kept twin) to every non-primary entry; `content` stays plain and
+/// the primary is unchanged.
+#[test]
+fn scaffold_all_tabstops_adds_a_snippet_twin_to_supporting_files() {
+    let dir = scratch_dir("scaffold-all-tabstops");
+    std::fs::create_dir_all(dir.join(".codemmet/snippets")).expect("mkdir");
+    std::fs::write(
+        dir.join(".codemmet/snippets/rust.toml"),
+        "[meta]\nlanguage = \"rust\"\n\n[snippets.mpair]\nparams = [{ name = \"name\", kind = \"ident\", default = \"thing\" }]\n\n[snippets.mpair.files.decl]\ntarget = \"self\"\non_exists = \"append\"\nbody = \"mod ${name};\\npub use ${name}::${1:Item};\"\n\n[snippets.mpair.files.module]\npath = \"${name}.rs\"\non_exists = \"create\"\nprimary = true\nbody = \"pub struct ${1:Item};\\n$0\"\n",
+    )
+    .expect("write");
+    std::fs::write(dir.join("lib.rs"), "fn main() {}\n").expect("write");
+    let run_json = |extra: &[&str]| {
+        let mut cmd = bin();
+        cmd.current_dir(&dir)
+            .args([
+                "scaffold",
+                "--lang",
+                "rust",
+                "--root",
+                ".",
+                "--from",
+                "lib.rs",
+                "--tabstops",
+                "keep",
+                "--json",
+            ])
+            .args(extra)
+            .arg("mpair:widget")
+            .arg("--config")
+            .arg(&dir);
+        let out = cmd.output().expect("binary should run");
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        serde_json::from_str::<serde_json::Value>(stdout(&out).trim()).expect("JSON")
+    };
+    let manifest = run_json(&["--all-tabstops"]);
+    let decl = &manifest[0];
+    assert_eq!(decl["primary"], false);
+    assert_eq!(decl["content"], "mod widget;\npub use widget::Item;");
+    assert_eq!(decl["snippet"], "mod widget;\npub use widget::${1:Item};$0");
+    let module = &manifest[1];
+    assert_eq!(module["primary"], true);
+    assert_eq!(module["content"], "pub struct ${1:Item};\n$0");
+    assert!(module.get("snippet").is_none(), "primary carries no twin");
+
+    let manifest = run_json(&[]);
+    assert!(
+        manifest[0].get("snippet").is_none(),
+        "no twin without the flag"
+    );
+}

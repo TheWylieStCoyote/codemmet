@@ -29,6 +29,7 @@ local M = {}
 ---@field render? codemmet.RenderConfig whole-buffer render behavior ({ snippet_reentry? })
 ---@field notes_file? string where `:CodemmetNote` appends (default `<data>/codemmet/notes.md`)
 ---@field render_on_save? boolean render a saved `.codemmet` buffer to its sidecar file (default false)
+---@field scaffold? codemmet.ScaffoldConfig multi-file scaffold behavior ({ interactive = "primary"|"all" })
 
 ---The resolved configuration from the last `setup()` call, `nil` before any.
 ---Read-only introspection (used by `:checkhealth codemmet`).
@@ -60,10 +61,17 @@ local defaults = {
   preview = false,
   render_on_save = false,
   render = { snippet_reentry = true },
+  scaffold = { interactive = "primary" },
 }
 
 ---The active configuration: `defaults` merged with the last `setup()` opts.
 local config = vim.deepcopy(defaults)
+
+---Start the live tabstop session of the next scaffold file written plain
+---(`scaffold = { interactive = "all" }`).
+function M.scaffold_next()
+  require("codemmet.scaffold").next()
+end
 
 ---Expand the abbreviation immediately before the cursor.
 function M.expand()
@@ -205,6 +213,7 @@ function M.setup(opts)
   local filemode = require("codemmet.filemode")
   filemode.set_cmd(config.cmd)
   require("codemmet.render").configure(config.render)
+  require("codemmet.scaffold").configure(config.scaffold)
   local group = vim.api.nvim_create_augroup("codemmet", { clear = true })
 
   -- `.codemmet` source buffers attach too, with the languageId of the INNER

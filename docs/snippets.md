@@ -840,7 +840,9 @@ body      = "void ${name}();"
 
 Parameters resolve to **concrete text** here (they appear in file paths), so —
 unlike a composite — they are not tabstops; only the single `primary` file keeps
-tabstops, since these cannot cross files. `codemmet scaffold` prints a manifest
+tabstops by default, since these cannot cross files (an editor may opt into a
+live session per file, one at a time — see `--all-tabstops` and Neovim's
+`scaffold = { interactive = "all" }`). `codemmet scaffold` prints a manifest
 (`--json`) or applies it (`--write`); in Neovim `:CodemmetScaffold` writes the
 supporting files and opens the primary as a live, interactive snippet. Every
 language ships builtins — module/package scaffolds, `itest` test files, Rust

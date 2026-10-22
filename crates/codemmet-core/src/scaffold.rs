@@ -40,6 +40,11 @@ pub struct ScaffoldOptions<'a> {
     pub current_file: Option<&'a Path>,
     /// The explicit source file (`--source`), for `source` targets.
     pub source_file: Option<&'a Path>,
+    /// Also render every **non-primary** piece in the requested
+    /// [`TabstopMode`] into [`FileOutput::snippet`], so an editor can offer a
+    /// live tabstop session in each generated file, one at a time. The
+    /// pieces' `content` stays plain either way.
+    pub all_tabstops: bool,
 }
 
 /// One entry of the expansion manifest: content destined for one file.
@@ -65,6 +70,9 @@ pub struct FileOutput {
     pub requires: Vec<String>,
     /// Whether this is the primary file (the one that keeps tabstops).
     pub primary: bool,
+    /// For a non-primary piece under [`ScaffoldOptions::all_tabstops`]: the
+    /// same content rendered with tabstops kept. `None` otherwise.
+    pub snippet: Option<String>,
 }
 
 /// Why a multi-file expansion failed.
@@ -170,6 +178,11 @@ pub fn scaffold(
         let piece_mode = if is_primary { mode } else { TabstopMode::Strip };
         let (content, piece_requires) =
             render_piece(engine, language, piece, &values, ctx, piece_mode)?;
+        let live_twin = if !is_primary && opts.all_tabstops && mode == TabstopMode::Keep {
+            Some(render_piece(engine, language, piece, &values, ctx, mode)?.0)
+        } else {
+            None
+        };
         // The snippet's own `requires` ride with the primary file; each
         // piece adds what its rendered content pulled in (first-appearance
         // dedup, matching `Expansion.requires`).
@@ -194,6 +207,7 @@ pub fn scaffold(
             into: piece.into.as_deref().map(|p| subst(p, &values, &ctx.vars)),
             requires,
             primary: is_primary,
+            snippet: live_twin,
         });
     }
     Ok(out)
@@ -495,6 +509,40 @@ mod tests {
     }
 
     #[test]
+    fn all_tabstops_gives_non_primary_pieces_a_live_twin() {
+        let engine = Engine::with_registry(
+            crate::lang::registry::Registry::with_builtins().expect("builtins"),
+        );
+        let ctx = ExpansionContext::plain(String::new(), crate::context::IndentUnit::Spaces(4));
+        let root = Path::new("/tmp/proj");
+        let cur = Path::new("/tmp/proj/lib.rs");
+        for (all, keep) in [(false, true), (true, false), (true, true)] {
+            let opts = ScaffoldOptions {
+                root,
+                current_file: Some(cur),
+                source_file: None,
+                all_tabstops: all,
+            };
+            let mode = if keep {
+                TabstopMode::Keep
+            } else {
+                TabstopMode::Strip
+            };
+            let out = scaffold(&engine, "rust", "mmod:helper", &ctx, &opts, mode).expect("mmod");
+            let decl = out.iter().find(|o| !o.primary).expect("decl piece");
+            let module = out.iter().find(|o| o.primary).expect("module piece");
+            assert_eq!(decl.content, "mod helper;", "decl stays plain");
+            // A twin only when asked for AND tabstops are kept; the primary
+            // never has one (its content already carries the mode).
+            assert_eq!(decl.snippet.is_some(), all && keep, "all={all} keep={keep}");
+            assert!(module.snippet.is_none());
+            if let Some(twin) = &decl.snippet {
+                assert_eq!(twin, "mod helper;$0");
+            }
+        }
+    }
+
+    #[test]
     fn choose_primary_prefers_flag_then_self_then_first() {
         let flagged = [
             piece("a", FileTarget::SelfFile, false),
@@ -526,6 +574,7 @@ mod tests {
             root,
             current_file: None,
             source_file: None,
+            all_tabstops: false,
         };
         let path_piece = piece("m", FileTarget::Path("${app}/models.py".to_owned()), false);
         assert_eq!(
@@ -538,6 +587,7 @@ mod tests {
             root,
             current_file: Some(cur),
             source_file: Some(src),
+            all_tabstops: false,
         };
         let self_piece = piece("s", FileTarget::SelfFile, false);
         assert_eq!(

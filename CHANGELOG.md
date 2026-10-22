@@ -8,6 +8,14 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Live tabstops in every scaffold file (opt-in).** `codemmet scaffold
+  --all-tabstops --tabstops keep --json` adds a `snippet` field (the
+  tabstop-kept twin) to each non-primary manifest entry; `content` stays
+  plain. In Neovim, `setup({ scaffold = { interactive = "all" } })` writes
+  the supporting files plain as before and queues the ones with tabstops:
+  opening such a file, or `:CodemmetScaffoldNext`, swaps the written block
+  for a live `vim.snippet` session of the same text. A queued file edited in
+  the meantime is left alone.
 - **Test framework packs.** `codemmet frameworks` lists builtin packs that
   swap the test triggers for another framework: `python/unittest`
   (TestCase methods; `tfile` wraps them in a class), `python/asyncio`

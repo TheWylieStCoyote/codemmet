@@ -69,6 +69,10 @@ end, {
   desc = "Expand a multi-file snippet across files (prompts when no argument)",
 })
 
+vim.api.nvim_create_user_command("CodemmetScaffoldNext", function()
+  require("codemmet").scaffold_next()
+end, { desc = "Start the live tabstop session of the next scaffold file written plain" })
+
 vim.api.nvim_create_user_command("CodemmetPreviewToggle", function()
   require("codemmet").toggle_preview()
 end, { desc = "Toggle the codemmet live ghost-line preview in this buffer" })

@@ -131,6 +131,7 @@ the `opts` table above is passed to `setup()` for you.) All fields are optional:
 | `preview` | `boolean` | `false` | Show a live ghost-line preview of the expansion while you type (see below). |
 | `render` | `table` | `{ snippet_reentry = true }` | Whole-buffer render behavior. With `snippet_reentry = true`, `<A-E>` on the whole buffer drops you into `vim.snippet` tabstop navigation across the rendered constructs; set it to `false` for plain text with the cursor at the top. |
 | `notes_file` | `string` | `<data>/codemmet/notes.md` | Where `:CodemmetNote` appends dogfooding notes. |
+| `scaffold` | `table` | `{ interactive = "primary" }` | Which files of a [multi-file scaffold](#multi-file-scaffolds) get a live tabstop session: `"primary"` (the others are written plain) or `"all"` (the others are written plain too, and upgraded to a live session when you open them or run `:CodemmetScaffoldNext`). |
 | `render_on_save` | `boolean` | `false` | Render a saved `.codemmet` buffer to its sidecar file on `BufWritePost` (see [authoring `.codemmet` files](#authoring-codemmet-files-file-mode)). |
 
 On setup, a `FileType` autocommand starts the server with `vim.lsp.start` for each
@@ -162,12 +163,17 @@ The plugin also defines these user commands:
 | `:CodemmetSource {path}` | no | Set the **source file** for this buffer: the file whose functions, types, and methods back the `src.*` collections (`tfn*@src.fns`) and whose path sets `${src.*}`. Prompts when `{path}` is omitted, prefilled with a convention-based guess (`test_x.py` → `x.py`, `x_test.go` → `x.go`, `x.test.ts` → `x.ts`, `tests/x.rs` → `src/x.rs`, …); `none` clears it. |
 | `:CodemmetRenderTo {file}` | no | Render the `.codemmet` buffer to `{file}` — by default the sidecar name, the buffer path minus `.codemmet`. Writes nothing on a failed render. |
 | `:CodemmetScaffold {abbr}` | no | Expand a [multi-file snippet](snippets.md#multi-file-snippets) across files (create/append/inject), then open the primary file. Prompts for the invocation when omitted. |
+| `:CodemmetScaffoldNext` | no | With `scaffold = { interactive = "all" }`: open the next generated file still waiting for its tabstops and start its live session. |
 | `:CodemmetPreviewToggle` | no | Toggle the live ghost-line preview in this buffer. |
 | `:CodemmetTrain {args}` | no | Open the interactive [syntax trainer](trainer.md) in a terminal split, training the current buffer's language. Extra `{args}` go to `codemmet train` verbatim. |
 | `:CodemmetRenderPreview` | no | Toggle a live split rendering this buffer as a `.codemmet` source file. |
 | `:CodemmetNote {text}` | no | Append a dogfooding note (with the current file/line as context) to the notes file. Prompts when `{text}` is omitted. |
 
 `:CodemmetScaffold` runs `codemmet scaffold` (pointing `--from` at the current file and `--root` at the project root — the nearest `.codemmet`/`.git` ancestor), so the CLI does all the path resolution and rendering; the plugin writes the supporting files to disk and opens the **primary** file with its body inserted as a live snippet, so its tabstops (`$1`, `$0`) are interactive. Like capture, the read-only server never writes. Builtins ship for every language (module/package scaffolds, `itest` test files, Rust `mbin`, C++ `mmethod`/`mns`); see [`MULTIFILE_SNIPPETS.md`](../MULTIFILE_SNIPPETS.md).
+
+#### Multi-file scaffolds
+
+Tabstops cannot cross files, and `vim.snippet` runs one session at a time, so by default only the primary file is live and the supporting files land on disk as finished text. With `scaffold = { interactive = "all" }` the supporting files are *still* written plain — nothing half-finished ever sits on disk — but each one that has tabstops is also queued: when you open it (by any means) or run `:CodemmetScaffoldNext`, the plugin removes the block it just wrote and expands the same text as a live snippet in its place, so you fill its placeholders with Tab like the primary's. A queued file you edited in the meantime is left alone with a notice. The plugin asks the CLI for this with `--all-tabstops`.
 
 `:CodemmetCapture` runs the `codemmet capture` CLI on the selection (feeding it on standard input), which generalizes it — identifiers that repeat become `${param}` mirrors — and writes it into the resolved `.codemmet/snippets/<lang>.toml` pack. The plugin then calls the server's read-only `codemmet.reloadSnippets` command so the new trigger expands immediately in the same session. The language server itself never writes files: the CLI is the only writer, and `reloadSnippets` just re-reads packs from disk. See the [`capture` CLI reference](cli.md#capture) for the generalization rules and where the pack lands.
 

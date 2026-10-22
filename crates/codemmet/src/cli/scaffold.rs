@@ -45,6 +45,13 @@ pub struct ScaffoldArgs {
     #[arg(long)]
     write: bool,
 
+    /// With `--tabstops keep` and `--json`: give every non-primary entry a
+    /// `snippet` field too (its content with tabstops kept), so an editor can
+    /// run a live tabstop session in each generated file in turn. `content`
+    /// stays plain.
+    #[arg(long)]
+    all_tabstops: bool,
+
     /// Print the manifest as one JSON array of `{path, action, content,
     /// primary}` objects.
     #[arg(long)]
@@ -74,6 +81,9 @@ struct Planned {
     /// reported for manual insertion instead of writing invalid code.
     manual_requires: Vec<String>,
     primary: bool,
+    /// `--all-tabstops`: the content with tabstops kept, for the editor's
+    /// live session (same `on_create` / import weaving as `content`).
+    snippet: Option<String>,
 }
 
 /// What applying an entry will do.
@@ -136,6 +146,7 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
         root: &args.root,
         current_file: args.from.as_deref(),
         source_file: source_path,
+        all_tabstops: args.all_tabstops,
     };
     let outputs = match scaffold(
         &engine,
@@ -177,26 +188,10 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
 /// action, and prepare the content (fold in `on_create` on create; compute the
 /// structural insertion on inject).
 fn plan(out: &FileOutput, lang: &str, indent: &str) -> Result<Planned, String> {
-    let mut manual_requires = Vec::new();
-    let (action, mut content) = if out.path.exists() {
-        match out.on_exists {
-            OnExists::Create => {
-                return Err(format!(
-                    "file section `{}` targets {} which already exists (its \
-                     `on_exists` is `create`)",
-                    out.label,
-                    out.path.display()
-                ));
-            }
-            OnExists::Append => (Action::Append, out.content.clone()),
-            OnExists::Inject => plan_inject(out, lang, indent)?,
-        }
-    } else {
-        let content = out.on_create.as_ref().map_or_else(
-            || out.content.clone(),
-            |prefix| format!("{}\n\n{}", prefix.trim_end_matches('\n'), out.content),
-        );
-        (Action::Create, content)
+    let (action, content) = plan_text(out, lang, indent, &out.content)?;
+    let snippet = match &out.snippet {
+        Some(text) => Some(plan_text(out, lang, indent, text)?.1),
+        None => None,
     };
 
     // Weave the piece's import requirements in. Created files get the lines
@@ -204,15 +199,27 @@ fn plan(out: &FileOutput, lang: &str, indent: &str) -> Result<Planned, String> {
     // block (module-scope imports are legal everywhere but Go); injects land
     // inside a container body, so their imports are always manual.
     let missing = missing_requires(out, lang, action)?;
-    if !missing.is_empty() {
-        match action {
-            Action::Create => content = prepend_imports(&content, &missing),
-            Action::Append if lang != "go" => {
-                content = format!("{}\n{content}", missing.join("\n"));
-            }
-            _ => manual_requires = missing,
+    let weavable = match action {
+        Action::Create => true,
+        Action::Append => lang != "go",
+        Action::Inject { .. } => false,
+    };
+    let manual_requires = if weavable {
+        Vec::new()
+    } else {
+        missing.clone()
+    };
+    let weave = |text: String| -> String {
+        if missing.is_empty() || !weavable {
+            return text;
         }
-    }
+        match action {
+            Action::Create => prepend_imports(&text, &missing),
+            _ => format!("{}\n{text}", missing.join("\n")),
+        }
+    };
+    let content = weave(content);
+    let snippet = snippet.map(weave);
 
     Ok(Planned {
         path: out.path.clone(),
@@ -220,7 +227,37 @@ fn plan(out: &FileOutput, lang: &str, indent: &str) -> Result<Planned, String> {
         content,
         manual_requires,
         primary: out.primary,
+        snippet,
     })
+}
+
+/// The action for `out` against the filesystem, and `text` (its content, or
+/// its tabstop-kept twin) prepared for it: the `on_create` header folded in
+/// on create, the structural insertion computed on inject.
+fn plan_text(
+    out: &FileOutput,
+    lang: &str,
+    indent: &str,
+    text: &str,
+) -> Result<(Action, String), String> {
+    if out.path.exists() {
+        match out.on_exists {
+            OnExists::Create => Err(format!(
+                "file section `{}` targets {} which already exists (its \
+                 `on_exists` is `create`)",
+                out.label,
+                out.path.display()
+            )),
+            OnExists::Append => Ok((Action::Append, text.to_owned())),
+            OnExists::Inject => plan_inject(out, lang, indent, text),
+        }
+    } else {
+        let content = out.on_create.as_ref().map_or_else(
+            || text.to_owned(),
+            |prefix| format!("{}\n\n{text}", prefix.trim_end_matches('\n')),
+        );
+        Ok((Action::Create, content))
+    }
 }
 
 /// The formatted import lines of `out.requires` not already satisfied by the
@@ -263,19 +300,22 @@ fn prepend_imports(content: &str, lines: &[String]) -> String {
 /// structural insertion point, falling back to an append when there's no
 /// container (or in a tree-sitter-free build).
 #[cfg(feature = "tree-sitter")]
-fn plan_inject(out: &FileOutput, lang: &str, indent: &str) -> Result<(Action, String), String> {
+fn plan_inject(
+    out: &FileOutput,
+    lang: &str,
+    indent: &str,
+    text: &str,
+) -> Result<(Action, String), String> {
     let existing = std::fs::read_to_string(&out.path)
         .map_err(|err| format!("cannot read {}: {err}", out.path.display()))?;
-    if let Some(inj) =
-        codemmet_tsctx::inject(lang, &existing, &out.content, indent, out.into.as_deref())
-    {
+    if let Some(inj) = codemmet_tsctx::inject(lang, &existing, text, indent, out.into.as_deref()) {
         Ok((Action::Inject { offset: inj.offset }, inj.text))
     } else {
         eprintln!(
             "note: no container found in {}; appending instead",
             out.path.display()
         );
-        Ok((Action::Append, out.content.clone()))
+        Ok((Action::Append, text.to_owned()))
     }
 }
 
@@ -283,12 +323,17 @@ fn plan_inject(out: &FileOutput, lang: &str, indent: &str) -> Result<(Action, St
 // variant never fails but must share the shape for a single call site.
 #[cfg(not(feature = "tree-sitter"))]
 #[allow(clippy::unnecessary_wraps)]
-fn plan_inject(out: &FileOutput, _lang: &str, _indent: &str) -> Result<(Action, String), String> {
+fn plan_inject(
+    out: &FileOutput,
+    _lang: &str,
+    _indent: &str,
+    text: &str,
+) -> Result<(Action, String), String> {
     eprintln!(
         "note: `{}` exists; appending (`inject` needs the tree-sitter build)",
         out.path.display()
     );
-    Ok((Action::Append, out.content.clone()))
+    Ok((Action::Append, text.to_owned()))
 }
 
 /// Print the manifest as a JSON array.
@@ -311,6 +356,10 @@ fn emit_json(planned: &[Planned]) -> ExitCode {
             // the caller inserts these at the file's import block itself.
             if !e.manual_requires.is_empty() {
                 obj["manualRequires"] = serde_json::json!(e.manual_requires);
+            }
+            // `--all-tabstops`: the tabstop-kept twin of a non-primary entry.
+            if let Some(snippet) = &e.snippet {
+                obj["snippet"] = serde_json::json!(snippet);
             }
             obj
         })
