@@ -63,13 +63,17 @@ follows [Semantic Versioning](https://semver.org/).
   `<stem>_test.cpp`, JS/TS `<stem>.test.js/.ts`); Rust appends an inline
   `#[cfg(test)] mod tests` to the source itself. Multi-file `path` templates
   and `on_create` headers accept `${src.*}` variables, and a piece may
-  `target = "source"`. `:CodemmetScaffold` passes the buffer's source.
+  `target = "source"`. `:CodemmetScaffold` passes the buffer's source; with
+  none set, `scaffold --from <file>` treats that file as its own source.
 - **"Add missing tests" code action.** In a document with a source set, the
   LSP's `textDocument/codeAction` offers "Add N missing function tests from
   `<file>`" and "… method tests …": the `tfn`/`tmeth` tests for every item
   passing the trigger's default filter whose name the buffer does not mention,
   appended at the end of the file as one plain-text edit. Re-run it after
-  adding a function to the source to get just that test.
+  adding a function to the source to get just that test. A Rust buffer with
+  no source is its own: "Add N missing tests to `<file>`" adds a `mod tests`
+  or extends the one closing the file, counting only the test region as
+  "already tested".
 - **Guide: generating tests from code** (`docs/testing.md`) — the whole
   flow on one example with real outputs: `vars`, `tfn`/`tmeth`/`tfile`,
   filters, `:CodemmetSource`, the `codemmet.setSource` / `codemmet.context` /

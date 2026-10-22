@@ -96,10 +96,16 @@ local function open_primary(entry)
   vim.cmd.edit(vim.fn.fnameescape(entry.path))
   local bufnr = vim.api.nvim_get_current_buf()
   if entry.action == "append" then
+    -- Normal mode clamps the cursor onto the last character, so expanding at
+    -- "end of the last line" would land *before* its final brace. Add the
+    -- separating blank line and an empty line to expand on instead (the same
+    -- blank-line separator the CLI writes).
     local last = vim.api.nvim_buf_line_count(bufnr)
     local tail = vim.api.nvim_buf_get_lines(bufnr, last - 1, last, false)[1] or ""
-    vim.api.nvim_win_set_cursor(0, { last, #tail })
-    vim.snippet.expand("\n" .. entry.content)
+    local fresh = tail == "" and { "" } or { "", "" }
+    vim.api.nvim_buf_set_lines(bufnr, last, last, false, fresh)
+    vim.api.nvim_win_set_cursor(0, { last + #fresh, 0 })
+    vim.snippet.expand(entry.content)
   elseif entry.action == "inject" then
     local existing = read_file(entry.path) or ""
     local row, col = offset_to_pos(existing, entry.offset or #existing)

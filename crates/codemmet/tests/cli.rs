@@ -1624,7 +1624,9 @@ fn scaffold_tfile_creates_a_test_file_from_the_source() {
 }
 
 /// The Rust `tfile` appends an inline `mod tests` to the source file itself
-/// (`target = "source"`); without `--source` that target is an error.
+/// (`target = "source"`). Without `--source`, `--from` is its own source (the
+/// editor's case: scaffolding from the file being edited); with neither, the
+/// target is an error.
 #[cfg(feature = "tree-sitter")]
 #[test]
 fn scaffold_tfile_targets_the_source_file_in_rust() {
@@ -1653,6 +1655,38 @@ fn scaffold_tfile_targets_the_source_file_in_rust() {
         "content: {content}"
     );
     assert!(content.contains("fn area_works()"), "content: {content}");
+
+    // `--from` alone: the file is its own source.
+    let out = bin()
+        .args(["scaffold", "--lang", "rust", "--json", "--root"])
+        .arg(&dir)
+        .arg("--from")
+        .arg(&src)
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let manifest: serde_json::Value =
+        serde_json::from_str(stdout(&out).trim()).expect("stdout is JSON");
+    assert_eq!(manifest[0]["path"], src.display().to_string());
+    assert_eq!(manifest[0]["action"], "append");
+    let content = manifest[0]["content"].as_str().expect("content");
+    assert!(content.contains("fn area_works()"), "content: {content}");
+
+    // A `--from` that is not on disk yet is no source.
+    let out = bin()
+        .args(["scaffold", "--lang", "rust", "--json", "--root"])
+        .arg(&dir)
+        .arg("--from")
+        .arg(dir.join("unsaved.rs"))
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 2, "stderr: {}", stderr(&out));
 
     let out = run(
         "scaffold-tfile-nosource",

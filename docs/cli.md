@@ -351,7 +351,7 @@ codemmet scaffold --lang python "djfeature:blog" --write    # apply it
 | `--lang <ID>` | Language id, extension, or LSP id (required). |
 | `--root <DIR>` | Base directory for `path` targets (default: the working directory). |
 | `--from <FILE>` | The current file, for `self`/sibling (`.cpp`) targets. |
-| `--source <FILE>` | The source file: its definitions feed the `src.*` collections the pieces may repeat over, its path sets `${src.*}` in `path` templates and `on_create` headers, and `target = "source"` pieces write to it. The `tfile` test scaffolds need it. |
+| `--source <FILE>` | The source file: its definitions feed the `src.*` collections the pieces may repeat over, its path sets `${src.*}` in `path` templates and `on_create` headers, and `target = "source"` pieces write to it. The `tfile` test scaffolds need it. Defaults to `--from` when that file exists — a file is its own source, so `:CodemmetScaffold tfile` in a Rust file appends the test module to that file. |
 | `--tabstops keep\|strip` | Tabstop handling for the **primary** file (default `strip`; others are always plain). |
 | `--indent <STR>` | Indent unit (a tab or a run of spaces); defaults to the language profile. |
 | `--json` | Print `[{path, action, content, primary}]` for an editor to apply. |

@@ -166,5 +166,65 @@ if vim.b[bufnr].codemmet_source ~= nil then
 end
 io.write("source: clear scenario passed\n")
 
+-- Scenario 6: a Rust file is its own source — no :CodemmetSource needed.
+-- `:CodemmetScaffold tfile` appends the test module to the open buffer (after
+-- the final brace, not inside it), and the code-action menu offers the
+-- missing tests.
+vim.cmd("edit! " .. vim.fn.fnameescape(src))
+local src_buf = vim.api.nvim_get_current_buf()
+vim.bo[src_buf].filetype = "rust"
+local src_attached = vim.wait(5000, function()
+  local c = vim.lsp.get_clients({ name = "codemmet", bufnr = src_buf })[1]
+  return c ~= nil and c.initialized == true
+end, 50)
+if not src_attached then
+  fail("codemmet LSP client did not attach to the source buffer", src_buf)
+end
+require("codemmet").scaffold({ abbr = "tfile" })
+local scaffolded = vim.wait(5000, function()
+  return table
+    .concat(vim.api.nvim_buf_get_lines(src_buf, 0, -1, false), "\n")
+    :find("mod tests", 1, true) ~= nil
+end, 50)
+if not scaffolded then
+  fail("scaffold: tfile never appended a test module to the source buffer", src_buf)
+end
+local lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
+local cfg
+for i, line in ipairs(lines) do
+  if line == "#[cfg(test)]" then
+    cfg = i
+  end
+end
+if not cfg or lines[cfg - 1] ~= "" or lines[cfg - 2] ~= "}" or lines[#lines] ~= "}" then
+  fail("scaffold: the module must follow the impl's closing brace after one blank line", src_buf)
+end
+if vim.snippet.active() then
+  vim.snippet.stop()
+end
+vim.cmd("stopinsert")
+io.write("source: same-file tfile scaffold scenario passed\n")
+
+vim.api.nvim_buf_set_lines(src_buf, 0, -1, false, vim.fn.readfile(src))
+local src_client = vim.lsp.get_clients({ name = "codemmet", bufnr = src_buf })[1]
+local actions
+src_client:request("textDocument/codeAction", {
+  textDocument = { uri = vim.uri_from_bufnr(src_buf) },
+  range = { start = { line = 0, character = 0 }, ["end"] = { line = 0, character = 0 } },
+  context = { diagnostics = {} },
+}, function(_, res)
+  actions = res or {}
+end, src_buf)
+vim.wait(5000, function()
+  return actions ~= nil
+end, 20)
+if not actions or #actions ~= 1 or actions[1].title ~= "Add 4 missing tests to geometry.rs" then
+  fail(
+    "code action: expected 'Add 4 missing tests to geometry.rs', got " .. vim.inspect(actions),
+    src_buf
+  )
+end
+io.write("source: same-file code action scenario passed\n")
+
 io.write("source: all scenarios passed\n")
 os.exit(0)

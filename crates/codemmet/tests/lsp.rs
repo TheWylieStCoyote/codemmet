@@ -1451,3 +1451,66 @@ fn code_action_adds_missing_tests_from_the_source() {
     assert!(text.contains("fn point_len_works()"), "newText: {text}");
     client.shutdown();
 }
+
+/// A Rust buffer with no explicit source is its own source (Rust keeps tests
+/// in the file): one combined action adds a `mod tests` after the code, with a
+/// test for every public function and method the file does not test yet.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn code_action_adds_a_test_module_to_the_source_file_itself() {
+    let (mut client, _) = LspClient::start("same-file-tests", &["utf-8"], &json!({}));
+    client.open(
+        URI,
+        "rust",
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\nfn helper() {}\npub struct Point { x: f64 }\nimpl Point {\n    pub fn len(&self) -> f64 { self.x }\n}\n",
+    );
+    let result = client.code_action(URI, 0, 0);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 1, "actions: {result}");
+    assert_eq!(actions[0]["title"], json!("Add 2 missing tests to main.rs"));
+    let edit = &actions[0]["edit"]["changes"][URI][0];
+    assert_eq!(edit["range"]["start"]["line"], json!(6), "appended at EOF");
+    let text = edit["newText"].as_str().expect("newText");
+    assert_eq!(
+        text,
+        "\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn area_works() {\n        let result = area(w, h);\n        assert_eq!(result, expected);\n    }\n    #[test]\n    fn point_len_works() {\n        let subject = Point::new();\n        let result = subject.len();\n        assert_eq!(result, expected);\n    }\n}\n"
+    );
+    client.shutdown();
+}
+
+/// With a `mod tests` already closing the file, only names used inside it count
+/// as tested (the code's own definitions do not), and the new tests go inside
+/// the module, before its closing brace, indented to match.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn code_action_adds_missing_tests_inside_the_existing_test_module() {
+    let (mut client, _) = LspClient::start("same-file-module", &["utf-8"], &json!({}));
+    client.open(
+        URI,
+        "rust",
+        "pub fn area(w: f64, h: f64) -> f64 { w * h }\npub fn perimeter(w: f64, h: f64) -> f64 { area(w, h) }\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn area_works() {\n        assert_eq!(area(2.0, 3.0), 6.0);\n    }\n}\n",
+    );
+    let result = client.code_action(URI, 0, 0);
+    let actions = result.as_array().expect("code actions are an array");
+    assert_eq!(actions.len(), 1, "actions: {result}");
+    // `perimeter` calls `area` but has no test of its own.
+    assert_eq!(actions[0]["title"], json!("Add 1 missing test to main.rs"));
+    let edit = &actions[0]["edit"]["changes"][URI][0];
+    assert_eq!(
+        edit["range"]["start"],
+        json!({ "line": 11, "character": 0 })
+    );
+    assert_eq!(edit["range"]["end"], json!({ "line": 11, "character": 0 }));
+    assert_eq!(
+        edit["newText"],
+        json!(
+            "\n    #[test]\n    fn perimeter_works() {\n        let result = perimeter(w, h);\n        assert_eq!(result, expected);\n    }\n"
+        )
+    );
+
+    // Non-Rust languages keep tests in sibling files: no implicit action.
+    let py = "file:///test/geometry.py";
+    client.open(py, "python", "def area(w, h):\n    return w * h\n");
+    assert_eq!(client.code_action(py, 0, 0), json!([]));
+    client.shutdown();
+}

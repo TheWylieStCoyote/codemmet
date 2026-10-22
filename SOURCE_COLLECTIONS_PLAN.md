@@ -281,7 +281,10 @@ depend on earlier ones.
    tests for items passing the trigger's default filter whose name the buffer
    never mentions, appended as one plain-text edit. Lives in the LSP layer
    (not `fill_targets`), since it needs the source, the test file, and the
-   engine together.
+   engine together. Without a source, a document whose language's `tfile`
+   targets `source` (Rust) is its own: one combined "Add N missing tests to
+   <file>" action, mentions counted from the first `#[cfg(test)]`, inserted
+   into a trailing `mod tests` or wrapped in `tmod`.
 
 ## Refinements made while building
 

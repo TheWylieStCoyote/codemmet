@@ -269,6 +269,26 @@ From then on, for this buffer:
 - `:lua vim.lsp.buf.code_action()` offers **Add N missing function/method
   tests from geometry.py** (next section).
 
+**Tests in the same file (Rust).** When the tests belong in the file you are
+editing, there is nothing to set: a buffer is its own source, so `src.fns` and
+`src.methods` are already the functions and methods around you. At the bottom
+of `src/geometry.rs`, type
+
+```text
+tmod>tfn*@src.fns+tmeth*@src.methods
+```
+
+and press `<A-e>`: a `#[cfg(test)] mod tests { use super::*; … }` with one
+test per public function and method appears as a live snippet, cursor on the
+first `expected`. `:CodemmetScaffold tfile` does the same without typing the
+abbreviation (it is what Rust's `tfile` expands to; with no source set, the
+scaffold treats the current file as its own), and the code-action menu
+offers **Add N missing tests to geometry.rs**: in a file without a test module
+it appends one; in a file that already ends with `mod tests { … }` it inserts
+the new tests inside the module, indented, before its closing brace. Only
+names used inside the test region count as tested there, so a function that
+the rest of the code calls is still "missing" until a test mentions it.
+
 The choice is kept per buffer (`vim.b.codemmet_source`) and re-sent if the
 server restarts. The plugin launches `codemmet lsp` from your `PATH`, so the
 binary there must know these commands — `codemmet vars <file>` is a quick
@@ -345,6 +365,13 @@ The edit is plain text appended at the end of the document, so applying it
 needs no snippet support. "Missing" means: passes the trigger's default
 filter and the buffer never mentions the name as a whole identifier. Add a
 function to the source, request the action again, and you get just its test.
+
+A document with no source set gets the action too when its language keeps
+tests in the source file (Rust, whose `tfile` targets the source): the title
+is then **Add N missing tests to `<file>`**, one action for functions and
+methods together, wrapped in a `tmod` module when the file has none and
+inserted before the closing brace of a trailing `mod tests` otherwise. Only
+mentions from the first `#[cfg(test)]` on count as tests.
 
 ## 6. Shaping the tests to your conventions
 

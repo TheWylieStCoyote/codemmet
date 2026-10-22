@@ -13,13 +13,13 @@ mod extract;
 mod line_index;
 mod requires;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
 
 use codemmet_core::Engine;
-use codemmet_core::config::loader::ConfigError;
+use codemmet_core::config::loader::{ConfigError, FileTarget};
 use codemmet_core::config::paths::PathMapping;
 use codemmet_core::context::{
     Collection, ContextProvider, DocSnapshot, ExpansionContext, Item, SourceContext,
@@ -550,78 +550,130 @@ impl Server {
         }
     }
 
-    /// "Add missing tests" actions for a document with an explicit source
-    /// (`codemmet.setSource`): one per builtin test trigger — `tfn` over the
-    /// source's `src.fns`, `tmeth` over its `src.methods` — that still has
-    /// items which pass the trigger's own default filter and whose name the
-    /// document never mentions. The edit appends the rendered tests at the
-    /// end of the document as plain text, so any LSP client can apply it.
+    /// "Add missing tests" actions.
+    ///
+    /// With an explicit source (`codemmet.setSource`) the document is a test
+    /// file: one action per builtin test trigger — `tfn` over the source's
+    /// `src.fns`, `tmeth` over its `src.methods` — for the items that pass the
+    /// trigger's own default filter and whose name the document never
+    /// mentions. The edit appends the rendered tests at the end of the
+    /// document as plain text, so any LSP client can apply it.
+    ///
+    /// Without one, the document is its own source when its language keeps
+    /// tests in the source file (the builtin `tfile` targets `source`, as in
+    /// Rust). Then its own definitions feed the collections, only the test
+    /// region (from the first `#[cfg(test)]`) counts as mentioning a name, and
+    /// a single action adds the tests inside the existing test module when its
+    /// closing brace ends the file, or in a fresh `tmod` module after the code.
     fn missing_test_actions(
         &mut self,
         uri: &Uri,
         doc: &DocSnapshot,
         index: &LineIndex,
     ) -> Vec<CodeActionOrCommand> {
-        let Some(source) = self.source_context(uri) else {
-            return Vec::new();
-        };
         let engine = self.engine_for(uri);
         let Some(lang) = engine.registry().language(&doc.language) else {
             return Vec::new();
         };
-        let file = Path::new(&source.path)
-            .file_name()
-            .map_or_else(|| source.path.clone(), |f| f.to_string_lossy().into_owned());
-        let mut actions = Vec::new();
-        for (trigger, key, noun) in [
-            ("tfn", "src.fns", "function"),
-            ("tmeth", "src.methods", "method"),
-        ] {
-            let (Some(snippet), Some(collection)) =
-                (lang.set.get(trigger), source.collections.get(key))
-            else {
-                continue;
-            };
-            let missing: Vec<Item> = collection
-                .items
-                .iter()
-                .filter(|item| snippet.filter.iter().all(|p| p.matches(item)))
-                .filter(|item| !mentions(&doc.text, &item.value))
-                .cloned()
-                .collect();
-            if missing.is_empty() {
-                continue;
+        let doc_path = file_uri_to_path(uri.as_str());
+        let explicit = self.source_context(uri);
+        let own_collections;
+        let (collections, vars, path, same_file) = if let Some(source) = &explicit {
+            let path = PathBuf::from(&source.path);
+            let same = doc_path.as_deref() == Some(path.as_path());
+            (&source.collections, source.vars.clone(), path, same)
+        } else {
+            if !tests_live_in_source(lang) {
+                return Vec::new();
             }
+            let Some(path) = doc_path else {
+                return Vec::new();
+            };
+            own_collections = self.provider.source_collections(doc);
+            let vars = codemmet_core::lang::source::variables(lang.profile.id, &path, &doc.text);
+            (&own_collections, vars, path, true)
+        };
+        let file = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |f| f.to_string_lossy().into_owned(),
+        );
+        // In a source file, a name mentioned by the code itself is not tested;
+        // only the test region counts.
+        let test_region = same_file
+            .then(|| doc.text.find(TEST_REGION_MARKER))
+            .flatten();
+        let haystack = if same_file {
+            test_region.map_or("", |at| &doc.text[at..])
+        } else {
+            doc.text.as_str()
+        };
+
+        let parts = missing_parts(lang, collections, haystack);
+        if parts.is_empty() {
+            return Vec::new();
+        }
+
+        let mut ctx = ExpansionContext::plain(String::new(), lang.profile.default_indent.clone());
+        ctx.vars = vars;
+        // `?all`: the default filter was applied above; each collection is
+        // exactly the set to render.
+        let expand = |abbr: &str, ctx: &ExpansionContext| {
+            engine
+                .expand(abbr, &doc.language, ctx, TabstopMode::Strip)
+                .ok()
+                .map(|e| e.body.trim_end_matches('\n').to_owned())
+        };
+        let end = index.position(&doc.text, doc.text.len(), self.encoding);
+        let mut actions = Vec::new();
+        if same_file {
+            let count: usize = parts.iter().map(|(_, _, items)| items.len()).sum();
+            let abbr = parts
+                .into_iter()
+                .map(|(trigger, _, items)| {
+                    let name = format!("missing_{trigger}");
+                    let abbr = format!("{trigger}*@{name}?all");
+                    ctx.collections.insert(name, Collection { items });
+                    abbr
+                })
+                .collect::<Vec<_>>()
+                .join("+");
+            let plural = if count == 1 { "" } else { "s" };
+            let title = format!("Add {count} missing test{plural} to {file}");
+            let closing = test_region.and_then(|_| closing_brace_line(&doc.text));
+            let indent = lang.profile.default_indent.as_str();
+            let edit = same_file_edit(&doc.text, closing, &indent, &abbr, |abbr| {
+                expand(abbr, &ctx)
+            });
+            if let Some((at, new_text)) = edit {
+                let at = index.position(&doc.text, at, self.encoding);
+                actions.push(text_edit_action(
+                    uri,
+                    title,
+                    Range { start: at, end: at },
+                    new_text,
+                ));
+            }
+            return actions;
+        }
+        for (trigger, noun, missing) in parts {
             let count = missing.len();
-            let mut ctx =
-                ExpansionContext::plain(String::new(), lang.profile.default_indent.clone());
             ctx.collections
                 .insert("missing".to_owned(), Collection { items: missing });
-            ctx.vars.clone_from(&source.vars);
-            // `?all`: the default filter was applied above; the collection is
-            // exactly the set to render.
-            let Ok(expansion) = engine.expand(
-                &format!("{trigger}*@missing?all"),
-                &doc.language,
-                &ctx,
-                TabstopMode::Strip,
-            ) else {
+            let Some(body) = expand(&format!("{trigger}*@missing?all"), &ctx) else {
                 continue;
             };
-            let end = index.position(&doc.text, doc.text.len(), self.encoding);
             let lead = if doc.text.is_empty() || doc.text.ends_with('\n') {
                 ""
             } else {
                 "\n"
             };
-            let new_text = format!("{lead}{}\n", expansion.body.trim_end_matches('\n'));
             let plural = if count == 1 { "" } else { "s" };
             let title = format!("Add {count} missing {noun} test{plural} from {file}");
             actions.push(text_edit_action(
                 uri,
                 title,
                 Range { start: end, end },
-                new_text,
+                format!("{lead}{body}\n"),
             ));
         }
         actions
@@ -790,6 +842,102 @@ fn mentions(text: &str, name: &str) -> bool {
             .is_none_or(|c| !is_ident(c));
         before && after
     })
+}
+
+/// Where a source file's own tests begin: only mentions from here on count as
+/// "already tested" when a document is its own source. Same-file tests are a
+/// Rust convention; other languages keep them in sibling files.
+const TEST_REGION_MARKER: &str = "#[cfg(test)]";
+
+/// Whether the language's builtin `tfile` scaffold writes into the source
+/// file itself (`target = "source"`), i.e. tests conventionally live beside
+/// the code they test.
+fn tests_live_in_source(lang: &codemmet_core::lang::registry::LanguageSnippets) -> bool {
+    lang.set.get("tfile").is_some_and(|snippet| {
+        snippet.multifile.as_ref().is_some_and(|multi| {
+            multi
+                .files
+                .iter()
+                .any(|piece| matches!(piece.target, FileTarget::Source))
+        })
+    })
+}
+
+/// The builtin test triggers that still have untested items in `collections`:
+/// `(trigger, noun, items)` for `tfn` over `src.fns` and `tmeth` over
+/// `src.methods`, keeping the items that pass the trigger's own default
+/// filter and whose name `haystack` never mentions.
+fn missing_parts<'a>(
+    lang: &'a codemmet_core::lang::registry::LanguageSnippets,
+    collections: &BTreeMap<String, Collection>,
+    haystack: &str,
+) -> Vec<(&'a str, &'a str, Vec<Item>)> {
+    let mut parts = Vec::new();
+    for (trigger, key, noun) in [
+        ("tfn", "src.fns", "function"),
+        ("tmeth", "src.methods", "method"),
+    ] {
+        let (Some(snippet), Some(collection)) = (lang.set.get(trigger), collections.get(key))
+        else {
+            continue;
+        };
+        let missing: Vec<Item> = collection
+            .items
+            .iter()
+            .filter(|item| snippet.filter.iter().all(|p| p.matches(item)))
+            .filter(|item| !mentions(haystack, &item.value))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            parts.push((trigger, noun, missing));
+        }
+    }
+    parts
+}
+
+/// The edit that adds tests to a source file: `(byte offset, text)`. When
+/// `closing` is the line of the brace that ends a trailing test module, the
+/// rendered `abbr` goes inside it, one `indent` level deeper; otherwise a
+/// fresh `tmod` module wrapping `abbr` goes after the code.
+fn same_file_edit(
+    text: &str,
+    closing: Option<usize>,
+    indent: &str,
+    abbr: &str,
+    expand: impl Fn(&str) -> Option<String>,
+) -> Option<(usize, String)> {
+    if let Some(at) = closing {
+        let indented = expand(abbr)?
+            .lines()
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{indent}{l}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Some((at, format!("\n{indented}\n")));
+    }
+    let body = expand(&format!("tmod>{abbr}"))?;
+    let lead = if text.is_empty() {
+        ""
+    } else if text.ends_with('\n') {
+        "\n"
+    } else {
+        "\n\n"
+    };
+    Some((text.len(), format!("{lead}{body}\n")))
+}
+
+/// The byte offset of the last line of `text` when that line is a lone `}`
+/// (the closing brace of a trailing block, e.g. a `mod tests`): where new
+/// members of that block are inserted.
+fn closing_brace_line(text: &str) -> Option<usize> {
+    let trimmed = text.trim_end();
+    let line_start = trimmed.rfind('\n').map_or(0, |i| i + 1);
+    (trimmed[line_start..].trim() == "}").then_some(line_start)
 }
 
 /// Deserialize the single object argument LSP commands carry.

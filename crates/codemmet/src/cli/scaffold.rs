@@ -53,6 +53,7 @@ pub struct ScaffoldArgs {
     /// A source file whose definitions become collections (`src.fns`, …),
     /// whose path sets the `${src.*}` variables (usable in `path` templates
     /// and `on_create`), and which `target = "source"` pieces write to.
+    /// Defaults to `--from` when that file exists: a file is its own source.
     #[arg(long, value_name = "FILE")]
     source: Option<PathBuf>,
 
@@ -117,7 +118,15 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
     let engine = Engine::with_registry(registry);
     let indent = indent_unit.as_str();
     let mut ctx = ExpansionContext::plain(String::new(), indent_unit);
-    if let Some(path) = &args.source {
+    // Without `--source`, the current file is its own source — as in the
+    // editor, where a buffer's own definitions feed `src.*` — so `tfile` from
+    // a Rust file appends the test module to that file. An unsaved `--from`
+    // (not on disk yet) is simply no source.
+    let source_path = args
+        .source
+        .as_deref()
+        .or_else(|| args.from.as_deref().filter(|path| path.is_file()));
+    if let Some(path) = source_path {
         match load_source(path, &args.lang) {
             Ok(source) => source.apply(&mut ctx),
             Err(msg) => return config_failure(&msg),
@@ -126,7 +135,7 @@ pub fn run(sources: &Sources, args: &ScaffoldArgs) -> ExitCode {
     let opts = ScaffoldOptions {
         root: &args.root,
         current_file: args.from.as_deref(),
-        source_file: args.source.as_deref(),
+        source_file: source_path,
     };
     let outputs = match scaffold(
         &engine,

@@ -524,6 +524,15 @@ the actions report a count you can sanity-check before applying. Works in
 every language the `tfn`/`tmeth` triggers ship for; the user packs that
 override those triggers (and their `filter`) are honored.
 
+A file can also be its own source. With no source set, a document whose
+language keeps tests in the source file — the builtin `tfile` targets
+`source`, which today means Rust — offers one combined action, **"Add N
+missing tests to `geometry.rs`"**, for its own public functions and methods.
+The code's own definitions and calls do not count as tests: only mentions
+from the first `#[cfg(test)]` on do. Without a test module the edit appends a
+fresh `tmod` module after the code; when a `mod tests { … }` closes the file,
+the new tests are inserted before its closing brace, indented one level.
+
 ## See also
 
 - [Abbreviation syntax](syntax.md) — the `*@name` grammar and the `${value}`

@@ -396,7 +396,9 @@ The edit is plain text, so it applies in any LSP client.
 In a buffer with a source set (`:CodemmetSource`), the same menu also offers
 **"Add N missing function tests from `<file>`"** and **"… method tests …"**:
 the `tfn`/`tmeth` tests for every public function or method of the source
-the buffer does not mention yet, appended at the end of the file. See
+the buffer does not mention yet, appended at the end of the file. A Rust
+buffer needs no source for this: it offers **"Add N missing tests to
+`<file>`"** for its own functions, into its `mod tests`. See
 [add missing tests](context-codegen.md#add-missing-tests).
 
 ### Automatic imports
