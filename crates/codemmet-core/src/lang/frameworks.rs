@@ -33,7 +33,7 @@ pub const FRAMEWORKS: &[Framework] = &[
     Framework {
         language: "python",
         name: "unittest",
-        description: "unittest.TestCase methods (self.assertEqual); tfile wraps them in a TestCase",
+        description: "unittest.TestCase methods (self.assertEqual); tfile adds them to the TestCase, creating file and class if needed",
         source: include_str!("../../snippets/frameworks/python/unittest.toml"),
     },
     Framework {

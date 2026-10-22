@@ -2341,3 +2341,65 @@ fn rust_tfile_merges_into_an_existing_test_module() {
     );
     assert!(content.contains("fn p_len_works()"), "{content}");
 }
+
+/// The unittest `tfile` merges into an existing `Test<Stem>` class (an
+/// `inject` into the class named by `into`), creates file and class when
+/// absent — with the wrapper's `import unittest` — and appends a new class
+/// to a test file that lacks one.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn unittest_tfile_merges_into_the_existing_testcase() {
+    let dir = scratch_dir("unittest-tfile-merge");
+    let src = dir.join("geometry.py");
+    std::fs::write(&src, "def area(w, h):\n    return w * h\n").expect("write");
+    let test = dir.join("test_geometry.py");
+    let manifest = || {
+        let out = bin()
+            .args([
+                "--framework",
+                "python=unittest",
+                "scaffold",
+                "--lang",
+                "python",
+                "--json",
+                "--root",
+            ])
+            .arg(&dir)
+            .arg("--source")
+            .arg(&src)
+            .arg("tfile")
+            .arg("--config")
+            .arg(&dir)
+            .output()
+            .expect("binary should run");
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        serde_json::from_str::<serde_json::Value>(stdout(&out).trim()).expect("JSON")
+    };
+    let entry = &manifest()[0];
+    assert_eq!(entry["action"], "create");
+    assert!(
+        entry["content"].as_str().is_some_and(|c| c.starts_with("import unittest\n\nfrom geometry import *\n\nclass TestGeometry(unittest.TestCase):\n    def test_area(self):")),
+        "{entry}"
+    );
+
+    std::fs::write(
+        &test,
+        "import unittest\n\nfrom geometry import *\n\nclass TestGeometry(unittest.TestCase):\n    def test_other(self):\n        pass\n",
+    )
+    .expect("write");
+    let entry = &manifest()[0];
+    assert_eq!(entry["action"], "inject", "{entry}");
+    let content = entry["content"].as_str().expect("content");
+    assert!(content.contains("\n    def test_area(self):"), "{content}");
+    assert!(!content.contains("class "), "no second class: {content}");
+
+    std::fs::write(&test, "import unittest\n\nfrom geometry import *\n").expect("write");
+    let entry = &manifest()[0];
+    assert_eq!(entry["action"], "append", "{entry}");
+    assert!(
+        entry["content"]
+            .as_str()
+            .is_some_and(|c| c.starts_with("class TestGeometry(unittest.TestCase):")),
+        "{entry}"
+    );
+}

@@ -56,11 +56,16 @@ class Test${src.stem|pascal}(unittest.TestCase):
 '''
 
 [snippets.tfile]
-description = "create test_<source>.py beside the --source file with a unittest.TestCase per public fn/method (multi-file)"
+description = "add a unittest per public fn/method to test_<source>.py's TestCase beside the --source file, creating file and class if needed (multi-file)"
 
+# The tests belong inside `class Test<Stem>(unittest.TestCase)`: injected into
+# an existing one, else delivered inside a fresh `tcase` (file created, or
+# appended when the file has no such class).
 [snippets.tfile.files.test]
 path = "${src.dir}/test_${src.stem}.py"
-on_exists = "create"
+on_exists = "inject"
+into = "Test${src.stem|pascal}"
+wrap = "tcase"
 on_create = "from ${src.module} import *"
 primary = true
-expands = "tcase>tfn*@src.fns+tmeth*@src.methods"
+expands = "tfn*@src.fns+tmeth*@src.methods"

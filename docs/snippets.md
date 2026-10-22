@@ -96,7 +96,7 @@ framework pack** swaps them for another framework's shape. The packs are
 compiled into the binary; `codemmet frameworks` lists them:
 
 ```text
-python:   unittest  unittest.TestCase methods (self.assertEqual); tfile wraps them in a TestCase
+python:   unittest  unittest.TestCase methods (self.assertEqual); tfile adds them to the TestCase (creating file/class if needed)
           asyncio   pytest with pytest-asyncio: async functions get @pytest.mark.asyncio tests that await
 rust:     tokio     async functions get #[tokio::test] async tests that .await
 c:        unity     Unity TEST_ASSERT_EQUAL tests; tfile adds setUp/tearDown and a RUN_TEST main

@@ -8,6 +8,12 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **unittest `tfile` merges into the existing `TestCase`.** The Python
+  `unittest` framework pack's `tfile` injects new test methods into
+  `class Test<Stem>(unittest.TestCase)` when the test file already has it,
+  creates file and class (with `import unittest`) when not, and appends a
+  new class to a test file that lacks one — `into` + `wrap`, like the Rust
+  `tfile`. A wrapper's own `requires` now ride with the piece.
 - **Rust `tfile` merges into an existing `mod tests`.** Multi-file sections
   gain `wrap = "<trigger>"`: an `expands` piece whose content belongs inside
   a container is injected into the existing one named by `into`, and

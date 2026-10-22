@@ -191,10 +191,15 @@ pub fn scaffold(
         } else {
             None
         };
+        // The wrapped form may pull in requires of its own (the wrapper's
+        // `import unittest`); they ride with the piece — an existing file
+        // that already imports them filters them out at plan time.
+        let mut wrapper_requires = Vec::new();
         let (wrapped, wrapped_snippet) = match &piece.wrapped {
             Some(abbr) => {
-                let wrapped =
-                    render_expands(engine, language, piece, abbr, &values, ctx, piece_mode)?.0;
+                let (wrapped, requires) =
+                    render_expands(engine, language, piece, abbr, &values, ctx, piece_mode)?;
+                wrapper_requires = requires;
                 let twin = if live_twin.is_some() {
                     Some(render_expands(engine, language, piece, abbr, &values, ctx, mode)?.0)
                 } else {
@@ -211,7 +216,7 @@ pub fn scaffold(
         if is_primary {
             requires.extend(snippet.requires.iter().cloned());
         }
-        for spec in piece_requires {
+        for spec in piece_requires.into_iter().chain(wrapper_requires) {
             if !requires.contains(&spec) {
                 requires.push(spec);
             }
