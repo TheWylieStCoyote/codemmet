@@ -403,6 +403,44 @@ expressive:
 **Filters** change *which* items render without touching a template:
 `tfn*@src.fns?value~parse_*`, `tmeth*@src.methods?!ctor`, `?all`.
 
+**Pick a test framework.** The builtin bodies are pytest, `#[test]`,
+GoogleTest, and Jest. For unittest, pytest-asyncio, tokio, Catch2, or Vitest,
+select the builtin [framework pack](snippets.md#test-framework-packs) instead
+of rewriting the triggers — in the project:
+
+```toml
+# .codemmet/config.toml
+[frameworks]
+python = "asyncio"
+rust   = "tokio"
+```
+
+or per command with `--framework python=asyncio`, or as an editor default with
+`setup({ frameworks = { python = "asyncio" } })`. `codemmet frameworks` lists
+them. This is also how **async** functions get tests: the default `tfn` skips
+them because the body depends on the runtime; with `asyncio` / `tokio` they
+render awaiting:
+
+```sh
+codemmet --framework rust=tokio expand --lang rust --source src/geometry.rs "tfn*@src.fns"
+```
+
+```rust
+#[test]
+fn area_works() {
+    let result = area(w, h);
+    assert_eq!(result, expected);
+}
+#[tokio::test]
+async fn fetch_works() {
+    let result = fetch(url).await;
+    assert_eq!(result, expected);
+}
+```
+
+Everything above — filters, `tfile`, `:CodemmetSource`, the code action,
+`?!tested` — is unchanged under a framework pack; only the bodies differ.
+
 **Override the trigger.** A `tfn` in your own pack (`~/.config/codemmet/snippets/python.toml`,
 or a project `.codemmet/snippets/`) replaces the builtin everywhere,
 including `tfile` and the code action. Keep `filter` to keep the default

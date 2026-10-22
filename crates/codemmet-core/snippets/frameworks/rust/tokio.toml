@@ -1,0 +1,75 @@
+# Test framework pack: Rust with the tokio runtime.
+#
+# Selected with `frameworks.rust = "tokio"`. The builtin `tfn` / `tmeth` skip
+# `async` functions; this pack keeps them and gives each a `when = "async"`
+# variant: `#[tokio::test] async fn` awaiting the call.
+
+[meta]
+language = "rust"
+framework = "tokio"
+
+[snippets.tfn]
+description = "test calling a function, async ones awaited under #[tokio::test] (data-driven: tfn*@src.fns)"
+filter = "vis=public?!test"
+scope = "fn-body"
+body = '''
+#[test]
+fn ${value|snake}_works() {
+	let result = ${value}(${value.args});
+	assert_eq!(result, ${1:expected});
+}
+'''
+
+[[snippets.tfn.variants]]
+when = "async"
+body = '''
+#[tokio::test]
+async fn ${value|snake}_works() {
+	let result = ${value}(${value.args}).await;
+	assert_eq!(result, ${1:expected});
+}
+'''
+
+[snippets.tmeth]
+description = "test calling a method, async ones awaited under #[tokio::test] (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public?!trait"
+scope = "fn-body"
+body = '''
+#[test]
+fn ${value.owner|snake}_${value|snake}_works() {
+	let subject = ${value.owner}::new($1);
+	let result = subject.${value}(${value.args});
+	assert_eq!(result, ${2:expected});
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "async?static"
+body = '''
+#[tokio::test]
+async fn ${value.owner|snake}_${value|snake}_works() {
+	let result = ${value.owner}::${value}(${value.args}).await;
+	assert_eq!(result, ${1:expected});
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "async"
+body = '''
+#[tokio::test]
+async fn ${value.owner|snake}_${value|snake}_works() {
+	let subject = ${value.owner}::new($1);
+	let result = subject.${value}(${value.args}).await;
+	assert_eq!(result, ${2:expected});
+}
+'''
+
+[[snippets.tmeth.variants]]
+when = "static"
+body = '''
+#[test]
+fn ${value.owner|snake}_${value|snake}_works() {
+	let result = ${value.owner}::${value}(${value.args});
+	assert_eq!(result, ${1:expected});
+}
+'''

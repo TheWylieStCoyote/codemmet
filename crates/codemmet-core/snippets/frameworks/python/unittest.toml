@@ -1,0 +1,66 @@
+# Test framework pack: Python `unittest`.
+#
+# Selected with `frameworks.python = "unittest"` in `.codemmet/config.toml`
+# (or `--framework python=unittest`). Layered over the builtin Python pack, so
+# only the test triggers change: tests are methods of a `unittest.TestCase`,
+# and `tfile` wraps them in one.
+
+[meta]
+language = "python"
+framework = "unittest"
+
+[snippets.tfn]
+description = "unittest method calling a function (data-driven: tfn*@src.fns, public non-async by default; inside a TestCase)"
+filter = "vis=public?!test?!async"
+scope = "fn-body"
+body = '''
+def test_${value|snake}(self):
+	result = ${value}(${value.args})
+	self.assertEqual(result, ${1:expected})
+'''
+
+[snippets.tmeth]
+description = "unittest method calling a method (data-driven: tmeth*@src.Type.methods; inside a TestCase)"
+filter = "vis=public?!async"
+scope = "fn-body"
+body = '''
+def test_${value.owner|snake}_${value|snake}(self):
+	subject = ${value.owner}($1)
+	result = subject.${value}(${value.args})
+	self.assertEqual(result, ${2:expected})
+'''
+
+[[snippets.tmeth.variants]]
+when = "ctor"
+body = '''
+def test_${value.owner|snake}_init(self):
+	subject = ${value.owner}(${value.args})
+	self.assertIsNotNone(subject)
+'''
+
+[[snippets.tmeth.variants]]
+when = "!receiver=self"
+body = '''
+def test_${value.owner|snake}_${value|snake}(self):
+	result = ${value.owner}.${value}(${value.args})
+	self.assertEqual(result, ${1:expected})
+'''
+
+[snippets.tcase]
+description = "unittest.TestCase class named after the --source file (data-driven: tcase>tfn*@src.fns)"
+requires = ["unittest"]
+scope = "type-body"
+body = '''
+class Test${src.stem|pascal}(unittest.TestCase):
+	${child}
+'''
+
+[snippets.tfile]
+description = "create test_<source>.py beside the --source file with a unittest.TestCase per public fn/method (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/test_${src.stem}.py"
+on_exists = "create"
+on_create = "from ${src.module} import *"
+primary = true
+expands = "tcase>tfn*@src.fns+tmeth*@src.methods"

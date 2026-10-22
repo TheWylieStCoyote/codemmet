@@ -21,6 +21,7 @@ macro_rules! emit {
 mod capture;
 mod check;
 mod expand;
+mod frameworks;
 mod list;
 mod render;
 mod scaffold;
@@ -35,6 +36,7 @@ use std::process::ExitCode;
 use clap::{CommandFactory as _, Parser, Subcommand, ValueEnum};
 use codemmet_core::config::loader::{ConfigError, default_user_snippets_dir};
 use codemmet_core::config::paths::{PathMapping, default_paths_config};
+use codemmet_core::config::project::{self as project_config, Frameworks};
 use codemmet_core::context::{DocSnapshot, IndentUnit, SourceContext};
 use codemmet_core::lang::profile;
 use codemmet_core::lang::registry::{Registry, find_project_snippets_dirs};
@@ -82,9 +84,16 @@ struct Cli {
     #[arg(long, global = true, value_name = "FILE")]
     paths: Option<PathBuf>,
 
-    /// Do not auto-load project-local packs (`.codemmet/snippets`).
+    /// Do not auto-load project-local packs (`.codemmet/snippets`) or the
+    /// project config (`.codemmet/config.toml`).
     #[arg(long, global = true)]
     no_project: bool,
+
+    /// Use a test framework pack for a language, as `LANG=NAME`
+    /// (`python=unittest`, `rust=tokio`); repeatable. Overrides the
+    /// project config's `[frameworks]`. `codemmet frameworks` lists them.
+    #[arg(long, global = true, value_name = "LANG=NAME")]
+    framework: Vec<String>,
 
     /// A `.codemmet` source file to render (shorthand for
     /// `codemmet render <FILE>`); the inner extension picks the language.
@@ -108,6 +117,9 @@ pub struct Sources {
     /// Layered project directories (`.codemmet/snippets` up the tree),
     /// root-most first. Empty under `--no-project`.
     project: Vec<PathBuf>,
+    /// The selected test framework pack per language (project config, then
+    /// `--framework` flags).
+    frameworks: Frameworks,
 }
 
 impl Sources {
@@ -155,6 +167,8 @@ enum Command {
     Scaffold(scaffold::ScaffoldArgs),
     /// List every trigger registered for a language.
     List(list::ListArgs),
+    /// List the test framework packs (and which one each language uses).
+    Frameworks(frameworks::FrameworksArgs),
     /// Validate the user snippet override directory.
     Check,
     /// Print the collections (functions, types, methods, enums, …) a source
@@ -208,10 +222,29 @@ pub fn run() -> ExitCode {
     } else {
         find_project_snippets_dirs(&cwd)
     };
+    // Test frameworks: the project config's `[frameworks]` (unless
+    // `--no-project`), then explicit `--framework LANG=NAME` flags on top.
+    let mut frameworks = if cli.no_project {
+        Frameworks::new()
+    } else {
+        match project_config::resolve_frameworks(&cwd, &Frameworks::new()) {
+            Ok(frameworks) => frameworks,
+            Err(err) => return config_failure(&err),
+        }
+    };
+    for spec in &cli.framework {
+        match project_config::parse_selection(spec) {
+            Ok((lang, name)) => {
+                frameworks.insert(lang, name);
+            }
+            Err(msg) => return config_failure(&format!("--framework {msg}")),
+        }
+    }
     let sources = Sources {
         user: user_dir.clone(),
         mapped: mapping.dirs_for(&cwd),
         project,
+        frameworks,
     };
 
     match cli.command {
@@ -221,6 +254,7 @@ pub fn run() -> ExitCode {
         Some(Command::Capture(args)) => capture::run(&sources, &args),
         Some(Command::Scaffold(args)) => scaffold::run(&sources, &args),
         Some(Command::List(args)) => list::run(&sources, &args),
+        Some(Command::Frameworks(args)) => frameworks::run(&sources, &args),
         Some(Command::Check) => check::run(&sources),
         Some(Command::Vars(args)) => vars::run(&args),
         Some(Command::Lsp(args)) => {
@@ -303,7 +337,7 @@ pub fn load_source(path: &Path, lang_hint: &str) -> Result<SourceContext, String
 
 /// Load builtin packs merged with the resolved override tiers.
 pub fn load_registry(sources: &Sources) -> Result<Registry, ConfigError> {
-    Registry::with_dirs_layered(&sources.override_dirs())
+    Registry::with_layers(&sources.override_dirs(), &sources.frameworks)
 }
 
 /// Report a configuration/environment failure and yield exit code 3.

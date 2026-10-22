@@ -21,6 +21,7 @@ use std::rc::Rc;
 use codemmet_core::Engine;
 use codemmet_core::config::loader::{ConfigError, FileTarget};
 use codemmet_core::config::paths::PathMapping;
+use codemmet_core::config::project::{self as project_config, Frameworks};
 use codemmet_core::context::{
     Collection, ContextProvider, DocSnapshot, ExpansionContext, Item, SourceContext, TESTED,
     mark_tested,
@@ -80,6 +81,11 @@ struct InitOptions {
     /// untrusted repositories, and a project pack can silently redefine what
     /// abbreviations expand to.
     project_snippets: Option<bool>,
+    /// Default test framework pack per language (`{"python": "unittest"}`);
+    /// a project's `.codemmet/config.toml` `[frameworks]` overrides it per
+    /// language. Always honored: it only selects packs compiled into the
+    /// binary.
+    frameworks: Frameworks,
 }
 
 /// One open document, kept current via incremental sync.
@@ -92,6 +98,10 @@ struct Document {
     /// Version of the last applied change.
     version: i32,
 }
+
+/// What an [`Engine`] is built from: the override directories (lowest
+/// priority first) and the selected framework per language.
+type EngineKey = (Vec<PathBuf>, Vec<(String, String)>);
 
 /// Resolves (and caches) an [`Engine`] per document, so path-scoped snippet
 /// tiers apply to the file being edited.
@@ -112,8 +122,11 @@ struct SnippetResolver {
     mapping: PathMapping,
     /// Whether to layer in `.codemmet/snippets` project packs (opt-in).
     include_project: bool,
-    /// Engines keyed by their resolved override-dir list.
-    cache: HashMap<Vec<PathBuf>, Rc<Engine>>,
+    /// Default test framework per language (init option), refined per
+    /// document by the project config.
+    frameworks: Frameworks,
+    /// Engines keyed by their resolved override-dir list and frameworks.
+    cache: HashMap<EngineKey, Rc<Engine>>,
     /// Builtins-only fallback, used when an override tier fails to load.
     builtins: Rc<Engine>,
 }
@@ -124,11 +137,13 @@ impl SnippetResolver {
         user_dir: Option<PathBuf>,
         mapping: PathMapping,
         include_project: bool,
+        frameworks: Frameworks,
     ) -> Result<Self, ConfigError> {
         Ok(Self {
             user_dir,
             mapping,
             include_project,
+            frameworks,
             cache: HashMap::new(),
             builtins: Rc::new(Engine::with_registry(Registry::with_builtins()?)),
         })
@@ -149,14 +164,33 @@ impl SnippetResolver {
             // only — there is no path to map or walk.
             None => self.user_dir.iter().cloned().collect(),
         };
-        if let Some(engine) = self.cache.get(&dirs) {
+        // The project config's frameworks refine the editor's defaults. It
+        // only selects builtin packs, so it needs no opt-in; a broken file is
+        // reported and the defaults stand.
+        let frameworks = doc_path
+            .map_or_else(
+                || Ok(self.frameworks.clone()),
+                |path| project_config::resolve_frameworks(path, &self.frameworks),
+            )
+            .unwrap_or_else(|err| {
+                eprintln!("codemmet: ignoring project config: {err}");
+                self.frameworks.clone()
+            });
+        let key = (
+            dirs,
+            frameworks
+                .iter()
+                .map(|(l, n)| (l.clone(), n.clone()))
+                .collect::<Vec<_>>(),
+        );
+        if let Some(engine) = self.cache.get(&key) {
             return Rc::clone(engine);
         }
-        let refs: Vec<&Path> = dirs.iter().map(PathBuf::as_path).collect();
-        match Registry::with_dirs_layered(&refs) {
+        let refs: Vec<&Path> = key.0.iter().map(PathBuf::as_path).collect();
+        match Registry::with_layers(&refs, &frameworks) {
             Ok(registry) => {
                 let engine = Rc::new(Engine::with_registry(registry));
-                self.cache.insert(dirs, Rc::clone(&engine));
+                self.cache.insert(key, Rc::clone(&engine));
                 engine
             }
             Err(err) => {
@@ -390,7 +424,12 @@ fn serve_connection(
     // set does the resolver layer in `.codemmet/snippets` from the file's tree.
     // (The editor may open untrusted repositories.)
     let include_project = options.project_snippets.unwrap_or(false);
-    let resolver = SnippetResolver::new(user_dir.map(Path::to_path_buf), mapping, include_project)?;
+    let resolver = SnippetResolver::new(
+        user_dir.map(Path::to_path_buf),
+        mapping,
+        include_project,
+        options.frameworks.clone(),
+    )?;
 
     let mut server = Server {
         docs: HashMap::new(),

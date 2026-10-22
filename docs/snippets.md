@@ -64,6 +64,7 @@ Project packs are the **highest-priority** tier, so the full precedence is:
 
 ```
 builtin (+ inherited)
+  <  test framework pack (the one `.codemmet/config.toml` / --framework selects — see below)
   <  user            (~/.config/codemmet/snippets)
   <  user path-mapped (personal packs matched by path — see below)
   <  project         (.codemmet/snippets, root-most → nearest)
@@ -86,6 +87,51 @@ How they load differs by entry point, on purpose:
 
 `codemmet check` validates the project pack too and reports it alongside the
 user pack.
+
+## Test framework packs
+
+The builtin test triggers (`tfn`, `tmeth`, `tfile`, …) are written for one
+framework per language — pytest, Rust's `#[test]`, GoogleTest, Jest. A **test
+framework pack** swaps them for another framework's shape. The packs are
+compiled into the binary; `codemmet frameworks` lists them:
+
+```text
+python:   unittest  unittest.TestCase methods (self.assertEqual); tfile wraps them in a TestCase
+          asyncio   pytest with pytest-asyncio: async functions get @pytest.mark.asyncio tests that await
+rust:     tokio     async functions get #[tokio::test] async tests that .await
+cpp:      catch2    Catch2 v3 TEST_CASE / REQUIRE instead of GoogleTest
+javascript / typescript:
+          vitest    Vitest: Jest-shaped tests, tfile imports test/expect from "vitest"
+```
+
+A project selects one per language in `.codemmet/config.toml`:
+
+```toml
+[frameworks]
+python = "unittest"
+rust   = "tokio"
+```
+
+Config files are collected up the tree like project packs (root-most first,
+nearest wins per language), and — unlike project *snippet* packs — they are
+honored by the editor **without an opt-in**, because a config can only choose
+among builtin packs. Per invocation, `--framework LANG=NAME` overrides the
+config; in Neovim, `setup({ frameworks = { python = "unittest" } })` sets the
+editor's default (the LSP `frameworks` init option), which a project config
+still overrides.
+
+A framework pack merges **right after the language's builtin pack and before
+every override tier**, so it changes exactly the triggers it defines, keeps
+every other builtin, and your own packs still win per trigger. A language
+without a pack of the selected name takes its ancestor's (TypeScript →
+JavaScript, C++ → C). This is also where **variants that depend on a
+runtime** live: the builtin `tfn` skips `async` functions because the right
+body depends on the runtime, and the `tokio` / `asyncio` packs add a
+`when = "async"` variant that awaits.
+
+A framework pack is an ordinary pack with `framework = "<name>"` in `[meta]`,
+so writing your own is the same as overriding a trigger — put it in your user
+or project pack; the framework mechanism only covers the builtin set.
 
 ## Personal path-scoped packs
 

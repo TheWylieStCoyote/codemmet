@@ -1660,3 +1660,66 @@ fn python_same_file_tests_start_at_the_first_test_function_or_class() {
     assert_eq!(client.code_action(py, 0, 0), json!([]));
     client.shutdown();
 }
+
+/// The `frameworks` init option selects a test framework pack per language,
+/// and a project `.codemmet/config.toml` in the document's tree refines it —
+/// without the project-pack opt-in, since it only selects builtin packs.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn frameworks_init_option_and_project_config_select_test_packs() {
+    let dir = scratch_dir("lsp-frameworks");
+    let (mut client, _) = LspClient::start(
+        "frameworks",
+        &["utf-8"],
+        &json!({ "frameworks": { "python": "unittest" } }),
+    );
+    // A Python buffer with no project config: the init option's pack.
+    let py = format!("file://{}", dir.join("plain").join("geometry.py").display());
+    client.open(
+        &py,
+        "python",
+        "def area(w, h):\n    return w * h\n\ndef test_other(): pass\ntfn*@src.fns\n",
+    );
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.expand",
+            "arguments": [{ "uri": py, "position": { "line": 4, "character": 12 } }],
+        }),
+    );
+    let snippet = result["snippet"].as_str().expect("snippet");
+    assert!(
+        snippet.contains("def test_area(self):"),
+        "snippet: {snippet}"
+    );
+    assert!(snippet.contains("self.assertEqual"), "snippet: {snippet}");
+
+    // Under a project config choosing asyncio, that wins for its tree.
+    let proj = dir.join("proj");
+    std::fs::create_dir_all(proj.join(".codemmet")).expect("mkdir");
+    std::fs::write(
+        proj.join(".codemmet/config.toml"),
+        "[frameworks]\npython = \"asyncio\"\n",
+    )
+    .expect("write");
+    let py2 = format!("file://{}", proj.join("geometry.py").display());
+    client.open(
+        &py2,
+        "python",
+        "async def fetch(url):\n    return url\n\ndef test_other(): pass\ntfn*@src.fns\n",
+    );
+    let result = client.request(
+        "workspace/executeCommand",
+        &json!({
+            "command": "codemmet.expand",
+            "arguments": [{ "uri": py2, "position": { "line": 4, "character": 12 } }],
+        }),
+    );
+    let snippet = result["snippet"].as_str().expect("snippet");
+    assert!(
+        snippet.contains("@pytest.mark.asyncio"),
+        "snippet: {snippet}"
+    );
+    assert!(snippet.contains("await fetch(url)"), "snippet: {snippet}");
+    client.shutdown();
+}

@@ -1,6 +1,8 @@
 //! The registry: builtin packs merged with user overrides, per language.
 
 use std::collections::HashMap;
+
+pub use crate::config::project::Frameworks;
 use std::path::{Path, PathBuf};
 
 use crate::config::loader::{ConfigError, SnippetSet, parse_snippet_file};
@@ -68,6 +70,24 @@ impl Registry {
     /// see [`resolve_override_dirs`]. A missing directory or per-language file
     /// is not an error, but an unreadable or invalid one is.
     pub fn with_dirs_layered(override_dirs: &[&Path]) -> Result<Self, ConfigError> {
+        Self::with_layers(override_dirs, &Frameworks::new())
+    }
+
+    /// Load builtin packs, the selected [test framework
+    /// packs](crate::lang::frameworks), then an ordered list of override
+    /// directories.
+    ///
+    /// `frameworks` maps a language id to the framework pack it uses; the pack
+    /// merges right after that language's builtin (and inherited builtins)
+    /// and before every override directory, so a project's or user's pack
+    /// still wins per trigger. A language whose selected name has no pack of
+    /// its own takes its ancestor's (TypeScript → JavaScript). An unknown
+    /// name is an error naming the packs that exist. Otherwise as
+    /// [`with_dirs_layered`](Self::with_dirs_layered).
+    pub fn with_layers(
+        override_dirs: &[&Path],
+        frameworks: &Frameworks,
+    ) -> Result<Self, ConfigError> {
         let mut languages = HashMap::new();
         for profile in crate::lang::profile::PROFILES {
             let mut sources: Vec<(String, SnippetFile)> = Vec::new();
@@ -84,6 +104,33 @@ impl Registry {
             let builtin = parse_snippet_file(&builtin_origin, profile.snippet_source)?;
             check_language(&builtin_origin, &builtin, profile.id)?;
             sources.push((builtin_origin, builtin));
+
+            // The selected test framework pack, if any.
+            if let Some(name) = frameworks.get(profile.id) {
+                let fw = crate::lang::frameworks::find(profile.id, name).ok_or_else(|| {
+                    let available: Vec<&str> = crate::lang::frameworks::for_language(profile.id)
+                        .iter()
+                        .map(|f| f.name)
+                        .collect();
+                    ConfigError::Invalid {
+                        trigger: "frameworks".to_owned(),
+                        origin: "config".to_owned(),
+                        message: if available.is_empty() {
+                            format!("no test framework packs exist for {}", profile.id)
+                        } else {
+                            format!(
+                                "unknown test framework `{name}` for {}; available: {}",
+                                profile.id,
+                                available.join(", ")
+                            )
+                        },
+                    }
+                })?;
+                let origin = format!("framework:{}/{}", fw.language, fw.name);
+                let file = parse_snippet_file(&origin, fw.source)?;
+                check_language(&origin, &file, fw.language)?;
+                sources.push((origin, file));
+            }
 
             // Override directories in increasing priority (last wins).
             for dir in override_dirs {
@@ -503,6 +550,67 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn framework_pack_layers_between_builtin_and_overrides() {
+        // Selecting a framework swaps only the triggers it defines.
+        let frameworks = Frameworks::from([("python".to_owned(), "unittest".to_owned())]);
+        let reg = Registry::with_layers(&[], &frameworks).expect("registry");
+        let py = reg.language("python").expect("python");
+        assert!(
+            py.set
+                .get("tfn")
+                .and_then(|s| s.description.as_deref())
+                .is_some_and(|d| d.contains("unittest")),
+            "unittest tfn"
+        );
+        assert!(py.set.get("tcase").is_some(), "framework adds triggers");
+        assert!(py.set.get("def").is_some(), "builtins remain");
+        // An unselected language is untouched.
+        let rs = reg.language("rust").expect("rust");
+        assert!(
+            rs.set
+                .get("tfn")
+                .and_then(|s| s.description.as_deref())
+                .is_some_and(|d| !d.contains("tokio")),
+        );
+
+        // A user override still wins over the framework pack.
+        let dir = std::env::temp_dir().join(format!("codemmet-fw-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(
+            dir.join("python.toml"),
+            "[meta]\nlanguage = \"python\"\n[snippets.tfn]\ndescription = \"mine\"\nbody = \"mine\"\n",
+        )
+        .expect("write");
+        let reg = Registry::with_layers(&[dir.as_path()], &frameworks).expect("registry");
+        let description = reg
+            .language("python")
+            .and_then(|l| l.set.get("tfn"))
+            .and_then(|s| s.description.clone());
+        assert_eq!(description.as_deref(), Some("mine"));
+
+        // A language without a pack of that name inherits its ancestor's (C++
+        // has none named `catch2`-for-C, but C++ selecting a C pack would);
+        // here TypeScript has its own `vitest`. An unknown name is an error
+        // that lists what exists.
+        let frameworks = Frameworks::from([("typescript".to_owned(), "vitest".to_owned())]);
+        let reg = Registry::with_layers(&[], &frameworks).expect("registry");
+        let ts = reg.language("typescript").expect("typescript");
+        assert!(
+            ts.set
+                .get("tfile")
+                .and_then(|s| s.description.as_deref())
+                .is_some_and(|d| d.contains("Vitest") && d.contains(".test.ts")),
+        );
+        let frameworks = Frameworks::from([("python".to_owned(), "nose".to_owned())]);
+        let err = Registry::with_layers(&[], &frameworks)
+            .expect_err("unknown framework is an error")
+            .to_string();
+        assert!(err.contains("unknown test framework `nose`"), "{err}");
+        assert!(err.contains("unittest"), "{err}");
     }
 
     #[test]

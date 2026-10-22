@@ -8,6 +8,22 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Test framework packs.** `codemmet frameworks` lists builtin packs that
+  swap the test triggers for another framework: `python/unittest`
+  (TestCase methods; `tfile` wraps them in a class), `python/asyncio`
+  (pytest-asyncio: async functions get awaiting `@pytest.mark.asyncio`
+  tests), `rust/tokio` (`#[tokio::test] async fn … .await`), `cpp/catch2`
+  (`TEST_CASE` / `REQUIRE`), `javascript/vitest` and `typescript/vitest`
+  (Jest-shaped tests, `tfile` imports `test`/`expect`). Select one per
+  language in the new project config `.codemmet/config.toml`
+  (`[frameworks] python = "unittest"`, collected up the tree, nearest wins;
+  honored by the LSP without the project-pack opt-in since it only picks
+  builtin packs), per invocation with the global `--framework LANG=NAME`, or
+  as an editor default with the `frameworks` init option /
+  `setup({ frameworks = … })`. A framework pack merges between the builtin
+  and your overrides, so your packs still win. `check` reports the
+  selection; `--no-project` ignores the config.
+
 - **Source collections: a file's functions, types, and methods as data**
   (`SOURCE_COLLECTIONS_PLAN.md`). Tree-sitter extraction now reads a file's
   API surface into `src.fns`, `src.types`, `src.methods`, and

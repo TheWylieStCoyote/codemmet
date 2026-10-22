@@ -1,0 +1,68 @@
+# Test framework pack: pytest with pytest-asyncio.
+#
+# Selected with `frameworks.python = "asyncio"`. The builtin pytest `tfn` /
+# `tmeth` skip `async` functions (an `await`-less body would be wrong); this
+# pack keeps them and gives each a `when = "async"` variant that awaits the
+# call under `@pytest.mark.asyncio`.
+
+[meta]
+language = "python"
+framework = "asyncio"
+
+[snippets.tfn]
+description = "pytest test calling a function, async ones awaited under pytest-asyncio (data-driven: tfn*@src.fns)"
+filter = "vis=public?!test"
+scope = "fn-body"
+body = '''
+def test_${value|snake}():
+	result = ${value}(${value.args})
+	assert result == ${1:expected}
+'''
+
+[[snippets.tfn.variants]]
+when = "async"
+requires = ["pytest"]
+body = '''
+@pytest.mark.asyncio
+async def test_${value|snake}():
+	result = await ${value}(${value.args})
+	assert result == ${1:expected}
+'''
+
+[snippets.tmeth]
+description = "pytest test calling a method, async ones awaited under pytest-asyncio (data-driven: tmeth*@src.Type.methods)"
+filter = "vis=public"
+scope = "fn-body"
+body = '''
+def test_${value.owner|snake}_${value|snake}():
+	subject = ${value.owner}($1)
+	result = subject.${value}(${value.args})
+	assert result == ${2:expected}
+'''
+
+[[snippets.tmeth.variants]]
+when = "async"
+requires = ["pytest"]
+body = '''
+@pytest.mark.asyncio
+async def test_${value.owner|snake}_${value|snake}():
+	subject = ${value.owner}($1)
+	result = await subject.${value}(${value.args})
+	assert result == ${2:expected}
+'''
+
+[[snippets.tmeth.variants]]
+when = "ctor"
+body = '''
+def test_${value.owner|snake}_init():
+	subject = ${value.owner}(${value.args})
+	assert subject is not None
+'''
+
+[[snippets.tmeth.variants]]
+when = "!receiver=self"
+body = '''
+def test_${value.owner|snake}_${value|snake}():
+	result = ${value.owner}.${value}(${value.args})
+	assert result == ${1:expected}
+'''

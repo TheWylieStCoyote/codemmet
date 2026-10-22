@@ -328,7 +328,16 @@ depend on earlier ones.
   still keyed by bare name (they carry `module`).
 - **Nested functions / closures**: excluded from `src.fns` (only functions
   whose enclosing containers are module-like count).
-- **Test framework selection** per project (decision 8).
+- ~~**Test framework selection** per project (decision 8)~~ *(done)*: builtin
+  framework packs (`snippets/frameworks/<lang>/<name>.toml`, `[meta]
+  framework = "<name>"`) merge right after the language's builtin and before
+  overrides; selected by `.codemmet/config.toml` `[frameworks]` (up the tree,
+  nearest wins, no opt-in needed — it only picks builtin packs), the global
+  `--framework LANG=NAME`, or the LSP `frameworks` init option
+  (`setup({ frameworks = … })`). Ships `python/unittest`, `python/asyncio`,
+  `rust/tokio`, `cpp/catch2`, `javascript/vitest`, `typescript/vitest`; the
+  async variants live here (`when = "async"`), which is why the builtin
+  `tfn` can keep skipping async. `codemmet frameworks` lists them.
 - ~~**Multi-file test scaffolds**~~ *(done)*: `tfile` in every pack —
   `${src.*}` resolves in multi-file `path` templates and `on_create`
   headers, and `target = "source"` writes into the source file (Rust appends

@@ -1,0 +1,16 @@
+# Test framework pack: Vitest for TypeScript (the JavaScript pack with a `.ts`
+# test file). Selected with `frameworks.typescript = "vitest"`.
+
+[meta]
+language = "typescript"
+framework = "vitest"
+
+[snippets.tfile]
+description = "create <source>.test.ts beside the --source file with a Vitest test per exported fn/method (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/${src.stem}.test.ts"
+on_exists = "create"
+on_create = 'import { test, expect } from "vitest";'
+primary = true
+expands = "(timport>tname*@src.fns?vis=public+tname*@src.types?vis=public)+tfn*@src.fns+tmeth*@src.methods"

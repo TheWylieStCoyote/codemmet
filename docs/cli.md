@@ -378,6 +378,28 @@ codemmet list --lang rust
 
 The plain-text output is one `trigger<TAB>description` per line, sorted by trigger.
 
+## frameworks
+
+List the builtin [test framework packs](snippets.md#test-framework-packs), grouped by language, with `*` on the one this invocation selects.
+
+```sh
+codemmet frameworks [--lang <ID>] [--json]
+```
+
+| Option | Description |
+| --- | --- |
+| `--lang <ID>` | Only this language. |
+| `--json` | A JSON array of `{"language","name","description","selected"}`. |
+
+```sh
+codemmet frameworks --lang python
+# python:
+#   * unittest  unittest.TestCase methods (self.assertEqual); tfile wraps them in a TestCase
+#     asyncio   pytest with pytest-asyncio: async functions get @pytest.mark.asyncio tests that await
+```
+
+A framework is selected by the project config `.codemmet/config.toml` (`[frameworks] python = "unittest"`, collected up the tree, nearest wins) or, per invocation, by the global `--framework LANG=NAME` flag (repeatable, overrides the config). `--no-project` ignores the config too. An unknown name is a config error (exit 3) listing the names that exist. `codemmet check` reports the selection.
+
 ## vars
 
 Print the collections a source file yields for data-driven repeats: the
@@ -455,6 +477,10 @@ The global `--config <DIR>` option sets the snippet override directory, where yo
 | Windows | `%APPDATA%\codemmet\snippets\` |
 
 Files in this directory are named `<language-id>.toml`, for example `rust.toml` or `go.toml`. Pass `--config <DIR>` to any subcommand to use a different directory. For the full snippet pack schema, see the [custom snippets](snippets.md) guide.
+
+## Test frameworks and `--framework`
+
+The global `--framework LANG=NAME` flag (repeatable) layers a builtin [test framework pack](snippets.md#test-framework-packs) over a language for this invocation — `--framework python=unittest`, `--framework rust=tokio` — overriding the project config's `[frameworks]` table. See [frameworks](#frameworks).
 
 ## Project-local packs and `--no-project`
 

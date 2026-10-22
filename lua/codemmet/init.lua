@@ -23,7 +23,8 @@ local M = {}
 ---@field filetypes? string[] filetypes the server is started for
 ---@field keymaps? codemmet.KeymapOpts
 ---@field completion? boolean|codemmet.CompletionOpts built-in completion wiring; a boolean is shorthand for `{ enabled = ... }`
----@field init_options? table LSP initializationOptions ({ snippets_dir?, completion? })
+---@field init_options? table LSP initializationOptions ({ snippets_dir?, completion?, frameworks? })
+---@field frameworks? table<string, string> default test framework pack per language ({ python = "unittest", rust = "tokio" }); a project's `.codemmet/config.toml` overrides it. Shorthand for `init_options.frameworks`
 ---@field preview? boolean|codemmet.PreviewOpts live ghost-line preview while typing (default false); `true` ≡ `{ enabled = true, debounce_ms = 60 }`
 ---@field render? codemmet.RenderConfig whole-buffer render behavior ({ snippet_reentry? })
 ---@field notes_file? string where `:CodemmetNote` appends (default `<data>/codemmet/notes.md`)
@@ -189,6 +190,11 @@ function M.setup(opts)
   -- An explicit `init_options.completion` is the verbatim escape hatch and wins.
   if config.init_options.completion == nil and config.completion.mode ~= nil then
     config.init_options.completion = config.completion.mode
+  end
+  -- `frameworks` is the first-class spelling of the server's default test
+  -- framework packs; an explicit `init_options.frameworks` wins.
+  if config.init_options.frameworks == nil and config.frameworks ~= nil then
+    config.init_options.frameworks = config.frameworks
   end
   M.config = config
   config.preview = normalize_preview(config.preview)

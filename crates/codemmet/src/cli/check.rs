@@ -44,6 +44,9 @@ pub fn run(sources: &Sources) -> ExitCode {
                     emit!("  {label} snippets: {}", dir.display());
                 }
             }
+            for (lang, name) in &sources.frameworks {
+                emit!("  {lang} test framework: {name}");
+            }
             ExitCode::SUCCESS
         }
         Err(err) => config_failure(&err),

@@ -21,6 +21,10 @@ pub struct SnippetFile {
 pub struct Meta {
     /// Language identifier this pack targets, e.g. `"rust"`.
     pub language: String,
+    /// For a [test framework pack](crate::lang::frameworks): the name a
+    /// project selects it by (`"unittest"`). Absent on ordinary packs.
+    #[serde(default)]
+    pub framework: Option<String>,
 }
 
 /// One `[snippets.<trigger>]` definition.

@@ -1,0 +1,20 @@
+# Test framework pack: Vitest for JavaScript and TypeScript.
+#
+# Selected with `frameworks.javascript = "vitest"` (TypeScript inherits it, or
+# select `frameworks.typescript = "vitest"`). Vitest's API matches Jest's, so
+# the `tfn` / `tmeth` bodies are the builtins; what changes is the test file,
+# which imports `test` and `expect` explicitly.
+
+[meta]
+language = "javascript"
+framework = "vitest"
+
+[snippets.tfile]
+description = "create <source>.test.js beside the --source file with a Vitest test per exported fn/method (multi-file)"
+
+[snippets.tfile.files.test]
+path = "${src.dir}/${src.stem}.test.js"
+on_exists = "create"
+on_create = 'import { test, expect } from "vitest";'
+primary = true
+expands = "(timport>tname*@src.fns?vis=public+tname*@src.types?vis=public)+tfn*@src.fns+tmeth*@src.methods"

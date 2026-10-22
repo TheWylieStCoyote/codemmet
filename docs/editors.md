@@ -126,6 +126,7 @@ the `opts` table above is passed to `setup()` for you.) All fields are optional:
 | `keymaps` | `table` | `{ expand = "<A-e>", wrap = "<leader>cw", snippets = "<leader>cl", context = "<leader>cv", render = "<A-E>" }` | Key bindings to install. Set any field to `false` to disable that binding. |
 | `completion` | `boolean` or `table` | `{ enabled = true, autotrigger = true }` | Completion wiring; see [completion](#completion). A boolean is shorthand for `{ enabled = ... }`. |
 | `init_options` | `table` | `{}` | Forwarded verbatim as the LSP `initializationOptions`. See the [initializationOptions reference](#initializationoptions-reference). |
+| `frameworks` | `table<string, string>` | `nil` | Default [test framework pack](snippets.md#test-framework-packs) per language, e.g. `{ python = "unittest", rust = "tokio" }`; a project's `.codemmet/config.toml` overrides it. Shorthand for `init_options.frameworks`. |
 | `preview` | `boolean` or `table` | `false` | Live ghost-line preview of the expansion while you type (see below). `true` is shorthand for `{ enabled = true, debounce_ms = 60 }`. |
 | `preview` | `boolean` | `false` | Show a live ghost-line preview of the expansion while you type (see below). |
 | `render` | `table` | `{ snippet_reentry = true }` | Whole-buffer render behavior. With `snippet_reentry = true`, `<A-E>` on the whole buffer drops you into `vim.snippet` tabstop navigation across the rendered constructs; set it to `false` for plain text with the cursor at the top. |
@@ -514,6 +515,7 @@ through `init_options`; both are optional:
 | `completion` | string | `"always"` (default), `"operators-only"`, `"off"` | When to offer expansion completions. |
 | `project_snippets` | boolean | `false` (default), `true` | Load project-local packs from `.codemmet/snippets` (layered up the directory tree). Off by default; see the note below. |
 | `paths_file` | string | a file path | Path to a personal `paths.toml` mapping path prefixes to snippet directories (see [custom snippets](snippets.md#personal-path-scoped-packs)). If omitted, the default `<config>/codemmet/paths.toml` is used. |
+| `frameworks` | object | `{"python": "unittest", …}` | Default [test framework pack](snippets.md#test-framework-packs) per language. A project's `.codemmet/config.toml` `[frameworks]` overrides it per language, and is honored without `project_snippets` because it only selects builtin packs. |
 
 The default snippet directories are:
 

@@ -1765,3 +1765,250 @@ fn cpp_overloads_get_distinct_test_names() {
         "TEST(AreaTest, Works1) {\n    EXPECT_EQ(area(w, h), expected);\n}\nTEST(AreaTest, Works2) {\n    EXPECT_EQ(area(w, h), expected);\n}\nTEST(PointTest, Constructs1) {\n    Point subject;\n    \n}\nTEST(PointTest, Constructs2) {\n    Point subject(x);\n    \n}\nTEST(PointTest, Length) {\n    Point subject;\n    EXPECT_EQ(subject.length(), expected);\n}\n"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test framework packs (`--framework`, `.codemmet/config.toml`, `frameworks`)
+// ---------------------------------------------------------------------------
+
+/// `--framework LANG=NAME` layers a builtin framework pack over the language's
+/// builtin: the test triggers change shape, everything else stays.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn framework_flag_swaps_the_test_triggers() {
+    let dir = scratch_dir("framework-flag");
+    let src = dir.join("geometry.py");
+    std::fs::write(
+        &src,
+        "def area(w, h):\n    return w * h\n\nasync def fetch(url):\n    return url\n",
+    )
+    .expect("write");
+    let out = bin()
+        .args([
+            "--framework",
+            "python=unittest",
+            "expand",
+            "--lang",
+            "python",
+            "--source",
+        ])
+        .arg(&src)
+        .arg("tfn*@src.fns")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "def test_area(self):\n    result = area(w, h)\n    self.assertEqual(result, expected)\n"
+    );
+    // The asyncio pack keeps async functions and awaits them.
+    let out = bin()
+        .args([
+            "--framework",
+            "py=asyncio",
+            "expand",
+            "--lang",
+            "python",
+            "--source",
+        ])
+        .arg(&src)
+        .arg("tfn*@src.fns")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains(
+            "@pytest.mark.asyncio\nasync def test_fetch():\n    result = await fetch(url)"
+        ),
+        "{text}"
+    );
+    // Non-test triggers are untouched.
+    let out = run(
+        "framework-flag-def",
+        &[
+            "--framework",
+            "python=unittest",
+            "expand",
+            "--lang",
+            "python",
+            "def:f",
+        ],
+    );
+    assert_eq!(code(&out), 0);
+    assert!(stdout(&out).starts_with("def f("), "{}", stdout(&out));
+}
+
+/// An unknown framework name, or a malformed selection, is a config error
+/// (exit 3) that names what exists.
+#[test]
+fn framework_flag_rejects_unknown_names() {
+    let out = run(
+        "framework-unknown",
+        &["--framework", "python=nose", "list", "--lang", "python"],
+    );
+    assert_eq!(code(&out), 3);
+    let err = stderr(&out);
+    assert!(err.contains("unknown test framework `nose`"), "{err}");
+    assert!(err.contains("unittest, asyncio"), "{err}");
+    let out = run(
+        "framework-malformed",
+        &["--framework", "unittest", "list", "--lang", "python"],
+    );
+    assert_eq!(code(&out), 3);
+    assert!(
+        stderr(&out).contains("expected LANG=NAME"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// `codemmet frameworks` lists the packs per language, marking the selected
+/// one; `--json` is the same data.
+#[test]
+fn frameworks_subcommand_lists_packs_and_selection() {
+    let out = run(
+        "frameworks-list",
+        &["--framework", "rust=tokio", "frameworks", "--lang", "rust"],
+    );
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.starts_with("rust:\n  * tokio"), "{text}");
+    let out = run(
+        "frameworks-json",
+        &["frameworks", "--json", "--lang", "typescript"],
+    );
+    assert_eq!(code(&out), 0);
+    let items: serde_json::Value = serde_json::from_str(stdout(&out).trim()).expect("JSON");
+    assert_eq!(items[0]["language"], "typescript");
+    assert_eq!(items[0]["name"], "vitest");
+    assert_eq!(items[0]["selected"], false);
+    assert_eq!(
+        items.as_array().map(Vec::len),
+        Some(1),
+        "own pack hides the inherited one"
+    );
+    let out = run("frameworks-none", &["frameworks", "--lang", "go"]);
+    assert_eq!(code(&out), 0);
+    assert!(
+        stdout(&out).contains("no test framework packs"),
+        "{}",
+        stdout(&out)
+    );
+}
+
+/// The project config `.codemmet/config.toml` selects frameworks for every
+/// invocation under it; `--framework` overrides it, `--no-project` ignores it,
+/// and `check` reports it.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn project_config_selects_frameworks() {
+    let dir = scratch_dir("framework-config");
+    std::fs::create_dir_all(dir.join(".codemmet")).expect("mkdir");
+    std::fs::write(
+        dir.join(".codemmet/config.toml"),
+        "[frameworks]\npython = \"unittest\"\n",
+    )
+    .expect("write");
+    std::fs::write(
+        dir.join("geometry.py"),
+        "def area(w, h):\n    return w * h\n",
+    )
+    .expect("write");
+    let expand = |extra: &[&str]| {
+        let mut cmd = bin();
+        cmd.current_dir(&dir).args(extra).args([
+            "expand",
+            "--lang",
+            "python",
+            "--source",
+            "geometry.py",
+            "tfn*@src.fns",
+            "--config",
+        ]);
+        cmd.arg(&dir).output().expect("binary should run")
+    };
+    let out = expand(&[]);
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).contains("self.assertEqual"),
+        "{}",
+        stdout(&out)
+    );
+    let out = expand(&["--framework", "python=asyncio"]);
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).contains("assert result == expected"),
+        "{}",
+        stdout(&out)
+    );
+    let out = expand(&["--no-project"]);
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "def test_area():\n    result = area(w, h)\n    assert result == expected\n"
+    );
+
+    let out = bin()
+        .current_dir(&dir)
+        .args(["check", "--config"])
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).contains("python test framework: unittest"),
+        "{}",
+        stdout(&out)
+    );
+
+    // A broken config is a config error.
+    std::fs::write(
+        dir.join(".codemmet/config.toml"),
+        "[frameworks]\npython = 7\n",
+    )
+    .expect("write");
+    let out = expand(&[]);
+    assert_eq!(code(&out), 3, "stdout: {}", stdout(&out));
+}
+
+/// The unittest `tfile` wraps the tests in a `TestCase` and imports `unittest`
+/// once (through the `tcase` snippet's `requires`).
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn unittest_tfile_wraps_tests_in_a_testcase() {
+    let dir = scratch_dir("framework-unittest-tfile");
+    let src = dir.join("geometry.py");
+    std::fs::write(&src, "def area(w, h):\n    return w * h\n").expect("write");
+    let out = bin()
+        .args([
+            "--framework",
+            "python=unittest",
+            "scaffold",
+            "--lang",
+            "python",
+            "--json",
+            "--root",
+        ])
+        .arg(&dir)
+        .arg("--source")
+        .arg(&src)
+        .arg("tfile")
+        .arg("--config")
+        .arg(&dir)
+        .output()
+        .expect("binary should run");
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let manifest: serde_json::Value = serde_json::from_str(stdout(&out).trim()).expect("JSON");
+    assert_eq!(
+        manifest[0]["path"],
+        dir.join("test_geometry.py").display().to_string()
+    );
+    assert_eq!(
+        manifest[0]["content"],
+        "import unittest\n\nfrom geometry import *\n\nclass TestGeometry(unittest.TestCase):\n    def test_area(self):\n        result = area(w, h)\n        self.assertEqual(result, expected)"
+    );
+}
