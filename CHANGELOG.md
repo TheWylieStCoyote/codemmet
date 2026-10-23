@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-22
+
 ### Added
 
 - **Dispatch over every enum value, in every language.** The C, C++, Go,
@@ -225,6 +227,9 @@ follows [Semantic Versioning](https://semver.org/).
   with the exact outputs, the Neovim flow in the editor guide, and a headless
   end-to-end test (`tests/nvim/source.lua`) covering `:CodemmetSource`,
   `codemmet.context`, and expansion in a test buffer.
+- **The LSP caches an explicit source file** by mtime and size, so a request
+  against an unchanged `codemmet.setSource` file costs a `stat`, not a read
+  and a parse; edits to the source still show up on the next request.
 
 ### Fixed
 
@@ -259,12 +264,6 @@ follows [Semantic Versioning](https://semver.org/).
   → `src/x.py`) before being reported and used for `${src.dir}`.
 - **Repeat filter values are one operator only.** `?vis==` and `?vis=~x`
   are rejected instead of comparing against `=`.
-
-### Changed
-
-- **The LSP caches an explicit source file** by mtime and size, so a request
-  against an unchanged `codemmet.setSource` file costs a `stat`, not a read
-  and a parse; edits to the source still show up on the next request.
 
 ## [0.4.1] - 2026-07-10
 
