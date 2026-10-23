@@ -4,7 +4,7 @@
 //! plain text and the renderer owns indentation, so brace languages and
 //! indentation languages (Python) share one pipeline.
 
-use crate::snippet::transform::CaseTransform;
+use crate::snippet::transform::Transform;
 
 /// A parsed snippet body: what a TOML `body` string compiles to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,15 +41,15 @@ pub enum Span {
     /// the body.
     ///
     /// Renders as literal text when the abbreviation supplied an argument
-    /// (re-cased by `transform` when one is given), otherwise as a tabstop
+    /// (rewritten by `transform` when one is given), otherwise as a tabstop
     /// whose placeholder is the param's default — always verbatim: transforms
     /// apply only to caller-supplied text. Repeated references to one name
     /// become mirrors.
     Param {
         /// The parameter name; must exist in the snippet's `params` list.
         name: String,
-        /// The case transform from `${name|snake}`, if any.
-        transform: Option<CaseTransform>,
+        /// The transform from `${name|snake}` / `${name|native}`, if any.
+        transform: Option<Transform>,
     },
     /// `${i}`: the 1-based repetition index of the enclosing node.
     ///
@@ -60,7 +60,8 @@ pub enum Span {
     /// (and the `${outer…}` forms): a data-driven repeat item. `${value}` is
     /// the current level's item; `${outer}` is the nearest *enclosing*
     /// data-driven item (for nested repeats). Renders the item's value (or a
-    /// named member), re-cased by `transform` when one is given; otherwise a
+    /// named member), rewritten by `transform` when one is given (`|snake`
+    /// re-cases, `|native` looks the text up in a pack map); otherwise a
     /// tabstop carrying `default` — always verbatim: transforms apply only to
     /// data-supplied text. Token order: `source → .member → |transform →
     /// :default`.
@@ -69,22 +70,22 @@ pub enum Span {
         outer: bool,
         /// The member key from `${value.key}`; `None` for the primary value.
         member: Option<String>,
-        /// The case transform from `${value|snake}`, if any.
-        transform: Option<CaseTransform>,
+        /// The transform from `${value|snake}` / `${value.type|native}`, if any.
+        transform: Option<Transform>,
         /// The `${value:default}` fallback, used when there is no item.
         default: Option<String>,
     },
     /// `${src.key}` / `${src.key|transform}` / `${src.key:default}`: a
     /// source-file variable (`module`, `file`, `stem`, `dir`, `path`),
     /// resolved from [`ExpansionContext::vars`](crate::context::ExpansionContext).
-    /// Renders the value (re-cased by `transform`), or — when no source is
+    /// Renders the value (rewritten by `transform`), or — when no source is
     /// known — a tabstop carrying `default`, else the key itself, so the
     /// user always gets a hole to fill rather than silent empty text.
     Variable {
         /// The key after `src.`.
         key: String,
-        /// The case transform from `${src.key|snake}`, if any.
-        transform: Option<CaseTransform>,
+        /// The transform from `${src.key|snake}`, if any.
+        transform: Option<Transform>,
         /// The `${src.key:default}` fallback placeholder.
         default: Option<String>,
     },

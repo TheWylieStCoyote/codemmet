@@ -15,7 +15,7 @@
 //! errors.
 
 use super::ir::{IrLine, Span, Template};
-use super::transform::{CaseTransform, TRANSFORM_NAMES};
+use super::transform::Transform;
 
 /// A template body that violates the schema rules.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -323,7 +323,7 @@ fn parse_src_variable(chars: &mut Chars<'_>, line_no: usize) -> Result<Span, Tem
 fn parse_transform(
     chars: &mut Chars<'_>,
     line_no: usize,
-) -> Result<Option<CaseTransform>, TemplateError> {
+) -> Result<Option<Transform>, TemplateError> {
     if chars.peek() != Some(&'|') {
         return Ok(None);
     }
@@ -338,15 +338,15 @@ fn parse_transform(
         }
     }
     if chars.peek() == Some(&'|') {
-        return Err(err(line_no, "at most one case transform per reference"));
+        return Err(err(line_no, "at most one transform per reference"));
     }
-    CaseTransform::parse(&name).map(Some).ok_or_else(|| {
+    // A case transform is recognised here; any other word names a pack map
+    // (`[maps.<name>]`), which the pack loader validates once every map of
+    // the merged set is known.
+    Transform::parse(&name).map(Some).ok_or_else(|| {
         err(
             line_no,
-            &format!(
-                "unknown case transform `{name}` (expected one of: {})",
-                TRANSFORM_NAMES.join(", ")
-            ),
+            "expected a transform name after `|` (a case transform like `snake`, or a map)",
         )
     })
 }
@@ -398,6 +398,7 @@ fn parse_placeholder(chars: &mut Chars<'_>, line_no: usize) -> Result<String, Te
 #[allow(clippy::literal_string_with_formatting_args)]
 mod tests {
     use super::*;
+    use crate::snippet::transform::CaseTransform;
 
     fn parse(body: &str) -> Template {
         parse_template(body).expect("template should parse")
@@ -427,7 +428,7 @@ mod tests {
                 text(" "),
                 Span::Variable {
                     key: "stem".into(),
-                    transform: Some(CaseTransform::Pascal),
+                    transform: Some(Transform::Case(CaseTransform::Pascal)),
                     default: None,
                 },
                 text(" "),
@@ -598,38 +599,48 @@ mod tests {
                 Span::ItemValue {
                     outer: false,
                     member: None,
-                    transform: Some(CaseTransform::Snake),
+                    transform: Some(Transform::Case(CaseTransform::Snake)),
                     default: None
                 },
                 text(" "),
                 Span::ItemValue {
                     outer: false,
                     member: Some("type".to_owned()),
-                    transform: Some(CaseTransform::Pascal),
+                    transform: Some(Transform::Case(CaseTransform::Pascal)),
                     default: None
                 },
                 text(" "),
                 Span::ItemValue {
                     outer: true,
                     member: None,
-                    transform: Some(CaseTransform::Upper),
+                    transform: Some(Transform::Case(CaseTransform::Upper)),
                     default: Some("Fallback".to_owned())
                 },
                 text(" "),
                 Span::Param {
                     name: "name".to_owned(),
-                    transform: Some(CaseTransform::Kebab),
+                    transform: Some(Transform::Case(CaseTransform::Kebab)),
                 },
             ]
         );
     }
 
     #[test]
-    fn error_unknown_case_transform() {
+    fn unknown_transform_name_parses_as_a_map_reference() {
+        // The pack loader checks the name against the merged `[maps.*]`.
+        let t = parse_template("${value.type|native}\n").expect("parses");
         assert_eq!(
-            parse_err("${value|bogus}"),
-            "line 1: unknown case transform `bogus` \
-             (expected one of: camel, kebab, lower, pascal, snake, upper)"
+            t.lines[0].spans[0],
+            Span::ItemValue {
+                outer: false,
+                member: Some("type".to_owned()),
+                transform: Some(Transform::Map("native".to_owned())),
+                default: None,
+            }
+        );
+        assert_eq!(
+            parse_err("${value|}"),
+            "line 1: expected a transform name after `|` (a case transform like `snake`, or a map)"
         );
     }
 
@@ -637,7 +648,7 @@ mod tests {
     fn error_chained_case_transforms() {
         assert_eq!(
             parse_err("${value|snake|upper}"),
-            "line 1: at most one case transform per reference"
+            "line 1: at most one transform per reference"
         );
     }
 

@@ -186,6 +186,14 @@ body = '''
 ${value:pattern} => $0,
 '''
 
+[snippets.armb]
+description = "match arm binding the variant's payload (`match:m>armb*`: `Msg::Write(v) =>`)"
+# Like `arm`, but `${value.bind}` names every payload field — `Msg::Write(v)`,
+# `Msg::Pair(v0, v1)`, `Msg::Move { x, y }` — so the body can use them.
+body = '''
+${value.bind:pattern} => $0,
+'''
+
 [snippets.ifchain]
 description = "if let / else if let chain, one branch per item (`ifchain:m*@Msg`)"
 params = [{ name = "expr", kind = "ident", default = "value" }]
@@ -219,9 +227,10 @@ struct ${name} {
 description = "struct field definition"
 # `${value}` / `${value.type}` bind to a data-driven repeat item: a struct's
 # fields fill `field*@Point` (name + declared type). With no data both fall
-# back to tabstops.
+# back to tabstops. `|native` maps a foreign type spelling (a Python or
+# TypeScript `--source`) to Rust's; a Rust type passes through unchanged.
 body = '''
-${value:name}: ${value.type:Type},
+${value:name}: ${value.type|native:Type},
 '''
 
 [snippets.enum]
@@ -565,3 +574,175 @@ ${value.decl:fn name(&self)} {
 	${child}
 }
 '''
+
+[snippets.convert]
+description = "impl From<Src> for Dst, copying the fields both structs share (composite: `convert:Raw,Point`)"
+# `?value@${from}` keeps the destination fields the source also has — a zip
+# by name — so a renamed or added field is left out for you to fill in.
+params = [
+  { name = "from", kind = "ident", default = "Src" },
+  { name = "to", kind = "ident", default = "Dst" },
+]
+expands = "fromimpl:${from},${to}>convfield:${from}*@${to}?value@${from}"
+
+[snippets.fromimpl]
+description = "impl From<Src> for Dst with a `Self { … }` body"
+params = [
+  { name = "from", kind = "ident", default = "Src" },
+  { name = "to", kind = "ident", default = "Dst" },
+]
+body = '''
+impl From<${from}> for ${to} {
+	fn from(${from|snake}: ${from}) -> Self {
+		Self {
+			${child}
+		}
+	}
+}
+'''
+
+[snippets.convfield]
+description = "one `field: src.field,` line of a From impl"
+params = [{ name = "from", kind = "ident", default = "Src" }]
+body = '''
+${value:field}: ${from|snake}.${value:field},
+'''
+
+[snippets.errfrom]
+description = "impl From<Payload> for an error enum, one per single-field tuple variant (composite: `errfrom:MyError`)"
+# `?kind=tuple?arity=1` keeps the tuple variants that wrap exactly one value
+# (`Io(io::Error)`); `${value.payload}` is that value's type and
+# `${value.name}` the variant.
+params = [{ name = "err", kind = "ident", default = "Error" }]
+expands = "efrom:${err}*@${err}?kind=tuple?arity=1"
+
+[snippets.efrom]
+description = "impl From<Payload> for Err wrapping it in one variant"
+params = [{ name = "err", kind = "ident", default = "Error" }]
+body = '''
+impl From<${value.payload:Inner}> for ${err} {
+	fn from(inner: ${value.payload:Inner}) -> Self {
+		Self::${value.name:Variant}(inner)
+	}
+}
+'''
+
+[snippets.sqltable]
+description = "CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field"
+params = [{ name = "name", kind = "ident", default = "Table" }]
+body = '''
+CREATE TABLE ${name|snake} (
+	${child}
+);
+'''
+
+[snippets.sqlcol]
+description = "column from a struct field: snake_case name and the `|sql` type (`sqlcol*@Point`)"
+# `${value.type|sql}` maps the field's declared type through `[maps.sql]`
+# below; the last column drops its trailing comma.
+body = '''
+${value|snake:column} ${value.type|sql:TEXT},
+'''
+
+[[snippets.sqlcol.variants]]
+when = "last"
+body = '''
+${value|snake:column} ${value.type|sql:TEXT}
+'''
+
+# `|native`: a Rust spelling for a type written in another language — how
+# `struct:Point>field*` mirrors a Python dataclass or TypeScript interface
+# given `--source`. Keys are foreign spellings only (`float` is Python's, so
+# it reads as `f64`); a Rust type is never a key and passes through.
+[maps.native]
+int = "i64"
+float = "f64"
+str = "String"
+bytes = "Vec<u8>"
+None = "()"
+"list[*]" = "Vec<*>"
+"set[*]" = "HashSet<*>"
+"dict[*, *]" = "HashMap<*, *>"
+"Optional[*]" = "Option<*>"
+"* | None" = "Option<*>"
+number = "f64"
+string = "String"
+boolean = "bool"
+bigint = "i128"
+void = "()"
+Uint8Array = "Vec<u8>"
+"*[]" = "Vec<*>"
+"Array<*>" = "Vec<*>"
+"Record<string, *>" = "HashMap<String, *>"
+"Map<*, *>" = "HashMap<*, *>"
+"Set<*>" = "HashSet<*>"
+"* | null" = "Option<*>"
+"* | undefined" = "Option<*>"
+int8 = "i8"
+int16 = "i16"
+int32 = "i32"
+int64 = "i64"
+uint = "u64"
+uint8 = "u8"
+byte = "u8"
+uint16 = "u16"
+uint32 = "u32"
+uint64 = "u64"
+float32 = "f32"
+float64 = "f64"
+rune = "char"
+error = "Box<dyn std::error::Error>"
+"[]byte" = "Vec<u8>"
+"[]*" = "Vec<*>"
+"map[*]*" = "HashMap<*, *>"
+long = "i64"
+short = "i16"
+unsigned = "u32"
+"unsigned int" = "u32"
+"unsigned long" = "u64"
+"unsigned char" = "u8"
+double = "f64"
+size_t = "usize"
+ptrdiff_t = "isize"
+int8_t = "i8"
+int16_t = "i16"
+int32_t = "i32"
+int64_t = "i64"
+uint8_t = "u8"
+uint16_t = "u16"
+uint32_t = "u32"
+uint64_t = "u64"
+"char*" = "String"
+"const char*" = "String"
+"std::string" = "String"
+"std::vector<*>" = "Vec<*>"
+"std::optional<*>" = "Option<*>"
+"std::unordered_map<*, *>" = "HashMap<*, *>"
+"std::map<*, *>" = "BTreeMap<*, *>"
+"std::unique_ptr<*>" = "Box<*>"
+
+# `|sql`: a column type for a field's declared type — what `sqlcol` writes.
+# Integers become INTEGER, floats REAL, booleans BOOLEAN, text TEXT, byte
+# strings BLOB; an optional wrapper is unwrapped (nullability is the column's
+# business); anything else falls back to TEXT via the `*` catch-all.
+[maps.sql]
+i8 = "INTEGER"
+i16 = "INTEGER"
+i32 = "INTEGER"
+i64 = "INTEGER"
+isize = "INTEGER"
+u8 = "INTEGER"
+u16 = "INTEGER"
+u32 = "INTEGER"
+u64 = "INTEGER"
+usize = "INTEGER"
+f32 = "REAL"
+f64 = "REAL"
+bool = "BOOLEAN"
+String = "TEXT"
+str = "TEXT"
+"&str" = "TEXT"
+char = "TEXT"
+"Vec<u8>" = "BLOB"
+"Option<*>" = "*"
+"*" = "TEXT"

@@ -697,6 +697,102 @@ fn expand_data_driven_repeat_fills_arms_from_flag() {
 /// `else if` branches onto the previous `}` (Python: `elif` lines).
 #[cfg(feature = "tree-sitter")]
 #[test]
+fn expand_maps_types_zips_fields_and_binds_payloads() {
+    let dir = scratch_dir("expand-maps");
+    let rs = dir.join("point.rs");
+    std::fs::write(
+        &rs,
+        "pub struct Point { pub x: f64, pub tags: Vec<String>, pub label: Option<String> }\n\
+         pub struct Raw { pub x: f64, pub z: f64 }\n\
+         pub enum AppError { Io(std::io::Error), Timeout, Pair(i32, String), Move { dx: i32 } }\n",
+    )
+    .expect("fixture should be writable");
+    let expand = |lang: &str, abbr: &str| {
+        let out = run(
+            "expand-maps",
+            &[
+                "expand",
+                "--lang",
+                lang,
+                "--no-project",
+                "--source",
+                rs.to_str().expect("UTF-8 path"),
+                abbr,
+            ],
+        );
+        assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+        stdout(&out)
+    };
+    // `|native` in the TypeScript `field` body maps Rust spellings, with a
+    // `*` pattern whose capture maps again; the Python and Go packs likewise.
+    assert_eq!(
+        expand("typescript", "int:Point>field*"),
+        "interface Point {\n  x: number;\n  tags: string[];\n  label: string | null;\n}\n"
+    );
+    assert_eq!(
+        expand("python", "class:Point>field*"),
+        "class Point:\n    x: float\n    tags: list[str]\n    label: str | None\n"
+    );
+    assert_eq!(
+        expand("go", "struct:Point>field*"),
+        "type Point struct {\n\tx float64\n\ttags []string\n\tlabel string\n}\n"
+    );
+    // A Rust source into the Rust pack passes through unchanged.
+    assert_eq!(
+        expand("rust", "struct:Copy>field*@Point"),
+        "struct Copy {\n    x: f64,\n    tags: Vec<String>,\n    label: Option<String>,\n}\n"
+    );
+    // `|sql` through the `sqlcol` body; the last column drops its comma.
+    assert_eq!(
+        expand("rust", "sqltable:Point>sqlcol*"),
+        "CREATE TABLE point (\n    x REAL,\n    tags TEXT,\n    label TEXT\n);\n"
+    );
+    // `convert`: a composite whose repeat is filtered by membership in the
+    // caller-named source collection — only the shared field is copied.
+    assert_eq!(
+        expand("rust", "convert:Raw,Point"),
+        "impl From<Raw> for Point {\n    fn from(raw: Raw) -> Self {\n        Self {\n            x: raw.x,\n        }\n    }\n}\n"
+    );
+    // `errfrom`: one `From` impl per single-field tuple variant.
+    assert_eq!(
+        expand("rust", "errfrom:AppError"),
+        "impl From<std::io::Error> for AppError {\n    fn from(inner: std::io::Error) -> Self {\n        Self::Io(inner)\n    }\n}\n"
+    );
+    // `armb` binds every payload field; `*@outer.fields` walks them.
+    assert_eq!(
+        expand("rust", "match:e>armb*@AppError"),
+        "match e {\n    AppError::Io(v) => ,\n    AppError::Timeout => ,\n    AppError::Pair(v0, v1) => ,\n    AppError::Move { dx } => ,\n}\n"
+    );
+    assert_eq!(
+        expand(
+            "rust",
+            "armb*@AppError?kind=tuple>let:${value}*@outer.fields"
+        ),
+        "AppError::Io(v) => ,\nlet v = ;\nAppError::Pair(v0, v1) => ,\nlet v0 = ;\nlet v1 = ;\n"
+    );
+    // `?value=@outer` zips two collections by value instead of crossing them.
+    assert_eq!(
+        expand("rust", "impl*@Raw>fn:${value}*@Point?value=@outer"),
+        "impl x {\n    fn x(&self) {\n        \n    }\n}\nimpl z {\n\n}\n"
+    );
+    // `vars` shows the payload members and the `fields` sub-collection.
+    let out = run("expand-maps", &["vars", rs.to_str().expect("UTF-8 path")]);
+    assert_eq!(code(&out), 0, "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains(
+            "AppError::Pair(..)     args=\"v0, v1\" arity=\"2\" bind=\"AppError::Pair(v0, v1)\" kind=\"tuple\" name=\"Pair\" payload=\"i32, String\""
+        ),
+        "stdout: {text}"
+    );
+    assert!(
+        text.contains(".fields: v0 (index=\"0\" type=\"i32\"), v1 (index=\"1\" type=\"String\")"),
+        "stdout: {text}"
+    );
+}
+
+#[cfg(feature = "tree-sitter")]
+#[test]
 fn expand_dispatch_from_an_enum_across_languages() {
     let dir = scratch_dir("expand-dispatch");
     let rs = dir.join("m.rs");

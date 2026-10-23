@@ -191,6 +191,44 @@ pattern => ,
 
 A single `pattern => expr` match arm. Multiply it with `*n` (e.g. `arm*2`) to emit several arms at once.
 
+### `armb`
+
+Match arm binding the variant's payload.
+
+```sh
+codemmet expand --lang rust "armb"
+```
+
+```rust
+pattern => ,
+```
+
+Given a source file `events.rs`:
+
+```rust
+pub enum Event {
+    Quit,
+    Write(String),
+    Pair(i32, String),
+    Move { dx: i32, dy: i32 },
+}
+```
+
+```sh
+codemmet expand --lang rust --source events.rs "match:e>armb*@Event"
+```
+
+```rust
+match e {
+    Event::Quit => ,
+    Event::Write(v) => ,
+    Event::Pair(v0, v1) => ,
+    Event::Move { dx, dy } => ,
+}
+```
+
+Where `arm` writes the wildcard pattern (`Event::Write(..)`), `armb` writes `${value.bind}`: a pattern that binds every payload field — `v` for a single value, `v0`, `v1`, … for several, the field names for a struct variant — so the arm body can use them. The fields are also a sub-collection: `armb*@Event?kind=struct>let:${value}*@outer.fields` writes a `let` per bound field inside each struct-variant arm.
+
 ### `cl`
 
 closure.
@@ -218,6 +256,27 @@ const MAX: Type = ;
 ```
 
 A `const` item with a glued name argument (`:MAX`). The `Type` and value are left as spots to fill.
+
+### `convert`
+
+impl From<Src> for Dst, copying the fields both structs share (composite).
+
+```sh
+codemmet expand --lang rust "convert:Raw,Point" --repeat Raw=x,y,z --repeat Point=x,y,label
+```
+
+```rust
+impl From<Raw> for Point {
+    fn from(raw: Raw) -> Self {
+        Self {
+            x: raw.x,
+            y: raw.y,
+        }
+    }
+}
+```
+
+The two arguments name the source and destination structs (in an editor or with `--source`, their fields are read from the file). It expands to `fromimpl:Raw,Point>convfield:Raw*@Point?value@Raw`: one `field: raw.field,` line per destination field that the source **also has** — a zip by name, not a cross product. `label` has no `Raw` counterpart and is left for you; `z` is dropped.
 
 ### `derive`
 
@@ -338,6 +397,39 @@ eprintln!("");
 ```
 
 An `eprintln!` that writes to standard error, with an empty format string to fill.
+
+### `errfrom`
+
+impl From<Payload> for an error enum, one per single-field tuple variant (composite).
+
+Given a source file `errors.rs`:
+
+```rust
+pub enum AppError {
+    Io(std::io::Error),
+    Parse(std::num::ParseIntError),
+    Timeout,
+}
+```
+
+```sh
+codemmet expand --lang rust --source errors.rs "errfrom:AppError"
+```
+
+```rust
+impl From<std::io::Error> for AppError {
+    fn from(inner: std::io::Error) -> Self {
+        Self::Io(inner)
+    }
+}
+impl From<std::num::ParseIntError> for AppError {
+    fn from(inner: std::num::ParseIntError) -> Self {
+        Self::Parse(inner)
+    }
+}
+```
+
+It expands to `efrom:AppError*@AppError?kind=tuple?arity=1`: the tuple variants that wrap exactly one value get a `From` impl built from `${value.payload}` (the wrapped type) and `${value.name}`; `Timeout` carries nothing and is skipped. Without a source the placeholders stay as tabstops (`impl From<Inner> for Error`).
 
 ### `fn`
 
@@ -866,6 +958,60 @@ fn load() -> Result<(), Box<dyn std::error::Error>> {
 
 A function with a glued name argument (`:load`) that returns a boxed-error `Result`. Nesting a child with `>` fills the body.
 
+### `sqlcol`
+
+Column from a struct field: snake_case name and the `|sql` type.
+
+```sh
+codemmet expand --lang rust "sqlcol"
+```
+
+```rust
+column TEXT
+```
+
+Given a source file `point.rs`:
+
+```rust
+pub struct Point {
+    pub x: f64,
+    pub count: u32,
+    pub label: Option<String>,
+    pub raw: Vec<u8>,
+}
+```
+
+```sh
+codemmet expand --lang rust --source point.rs "sqltable:Point>sqlcol*"
+```
+
+```rust
+CREATE TABLE point (
+    x REAL,
+    count INTEGER,
+    label TEXT,
+    raw BLOB
+);
+```
+
+`${value.type|sql}` maps each field's declared type through the pack's `[maps.sql]` table: integers to `INTEGER`, floats to `REAL`, `bool` to `BOOLEAN`, strings to `TEXT`, `Vec<u8>` to `BLOB`, an `Option<…>` to its inner type, and anything else to `TEXT`. The last column drops its comma (a `when = "last"` variant).
+
+### `sqltable`
+
+CREATE TABLE statement.
+
+```sh
+codemmet expand --lang rust "sqltable:Point"
+```
+
+```rust
+CREATE TABLE point (
+    
+);
+```
+
+The argument is snake_cased for the table name; nest `sqlcol*` (or `sqlcol*@Point`) to write a column per field — see [`sqlcol`](#sqlcol).
+
 ### `struct`
 
 struct definition.
@@ -891,6 +1037,22 @@ struct Point {
 ```
 
 A `struct` with a glued name argument (`:Point`). Nesting with `>` places items such as a field doc comment inside the body.
+
+Given a `point.py` dataclass with `x: float`, `tags: list[str]` and `label: str | None`:
+
+```sh
+codemmet expand --lang rust --source point.py "struct:Point>field*"
+```
+
+```rust
+struct Point {
+    x: f64,
+    tags: Vec<String>,
+    label: Option<String>,
+}
+```
+
+`field*` copies the dataclass's fields, and its body writes `${value.type|native}`: a type spelled in another language is mapped to Rust's through the pack's `[maps.native]` table (`list[str]` to `Vec<String>`, `str | None` to `Option<String>`), while a Rust type passes through unchanged.
 
 ### `stub`
 

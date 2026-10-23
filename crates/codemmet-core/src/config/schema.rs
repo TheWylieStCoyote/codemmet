@@ -13,6 +13,13 @@ pub struct SnippetFile {
     /// The `[snippets.<trigger>]` tables, keyed by trigger.
     #[serde(default)]
     pub snippets: BTreeMap<String, SnippetDef>,
+    /// The `[maps.<name>]` tables: lookup tables a body applies with
+    /// `${value.type|<name>}`. Each entry maps an input spelling (an exact
+    /// type, or a single-`*` pattern such as `"Vec<*>"`) to its replacement.
+    /// Maps merge **per entry** across packs, so a user pack can add or
+    /// change one spelling of a builtin map without restating the rest.
+    #[serde(default)]
+    pub maps: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 /// The `[meta]` table of a snippet pack.

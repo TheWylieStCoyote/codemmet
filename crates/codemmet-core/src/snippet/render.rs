@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 
 use std::collections::BTreeMap;
 
-use crate::abbr::{AbbrNode, Abbreviation, Filter, Predicate, Repeat};
+use crate::abbr::{AbbrNode, Abbreviation, Filter, Predicate, PredicateOp, Repeat};
 use crate::config::loader::{
     CHILD_SENTINEL, CompiledComposite, CompiledSnippet, CompiledVariant, SnippetSet,
     parse_scope_name, substitute_child_slot, substitute_markers,
@@ -15,7 +15,7 @@ use crate::config::loader::{
 use crate::config::schema::ParamKind;
 use crate::context::{Collection, ExpansionContext, Item, Scope};
 use crate::snippet::ir::{Span, Template};
-use crate::snippet::transform::CaseTransform;
+use crate::snippet::transform::Transform;
 
 /// Maximum number of composed lines per expansion.
 ///
@@ -409,6 +409,7 @@ impl Composer<'_> {
                     .unwrap_or(&snippet.requires),
             );
             let bindings = copy_bindings(
+                self.set,
                 snippet,
                 node,
                 remainder,
@@ -623,6 +624,9 @@ impl Composer<'_> {
                     // Member predicates narrow the collection; positional
                     // ones (`?!first`) then apply to the narrowed list, so
                     // `first` is the first item that survived.
+                    // `=@outer…` values and `key@Name` tests resolve against
+                    // the enclosing item and the collections in scope.
+                    let outer = self.outer_stack.last();
                     let kept: Vec<&Item> = collection
                         .items
                         .iter()
@@ -630,7 +634,7 @@ impl Composer<'_> {
                             predicates
                                 .iter()
                                 .filter(|p| !p.is_positional())
-                                .all(|p| p.matches(item))
+                                .all(|p| p.matches_in(item, outer, self.collections))
                         })
                         .collect();
                     let count = kept.len();
@@ -678,6 +682,7 @@ impl Composer<'_> {
     ) -> Vec<Line> {
         let mut param_ids: HashMap<&str, StopId> = HashMap::new();
         let mut index_ids: HashMap<u32, StopId> = HashMap::new();
+        let maps = self.set.maps();
 
         let mut lines = Vec::with_capacity(template.lines.len());
         for ir_line in &template.lines {
@@ -685,9 +690,13 @@ impl Composer<'_> {
             for span in &ir_line.spans {
                 spans.push(match span {
                     Span::Text(t) => CSpan::Text(t.clone()),
-                    Span::Param { name, transform } => {
-                        self.instantiate_param(name, *transform, bindings, index, &mut param_ids)
-                    }
+                    Span::Param { name, transform } => self.instantiate_param(
+                        name,
+                        transform.as_ref(),
+                        bindings,
+                        index,
+                        &mut param_ids,
+                    ),
                     Span::Tabstop {
                         index: ti,
                         placeholder,
@@ -707,11 +716,13 @@ impl Composer<'_> {
                         transform,
                         default,
                     } => {
-                        // The transform re-cases *data-supplied* text only;
+                        // The transform rewrites *data-supplied* text only;
                         // an author-written default renders verbatim.
                         let cased = |text: &str| {
                             CSpan::Text(
-                                transform.map_or_else(|| text.to_owned(), |t| t.apply(text)),
+                                transform
+                                    .as_ref()
+                                    .map_or_else(|| text.to_owned(), |t| t.apply(text, maps)),
                             )
                         };
                         let src = if *is_outer { outer } else { item };
@@ -749,7 +760,11 @@ impl Composer<'_> {
                             mirror: false,
                         },
                         |text| {
-                            CSpan::Text(transform.map_or_else(|| text.clone(), |t| t.apply(text)))
+                            CSpan::Text(
+                                transform
+                                    .as_ref()
+                                    .map_or_else(|| text.clone(), |t| t.apply(text, maps)),
+                            )
                         },
                     ),
                     Span::ChildSlot => CSpan::Slot,
@@ -770,7 +785,7 @@ impl Composer<'_> {
     fn instantiate_param<'b>(
         &mut self,
         name: &'b str,
-        transform: Option<CaseTransform>,
+        transform: Option<&Transform>,
         bindings: &[(String, Binding)],
         index: u32,
         param_ids: &mut HashMap<&'b str, StopId>,
@@ -788,11 +803,11 @@ impl Composer<'_> {
                     let mirror = !self.shared_emitted.insert(id);
                     CSpan::Stop { id, mirror }
                 } else {
-                    // The transform re-cases the caller-supplied text, after
+                    // The transform rewrites the caller-supplied text, after
                     // `${i}` substitution so the copy number is part of it.
                     let text = sub_repeat_index(value, index);
                     CSpan::Text(match transform {
-                        Some(t) => t.apply(&text),
+                        Some(t) => t.apply(&text, self.set.maps()),
                         None => text,
                     })
                 }
@@ -824,6 +839,7 @@ impl Composer<'_> {
 /// itself), else the item-independent `base` bindings.
 #[allow(clippy::too_many_arguments)]
 fn copy_bindings<'b>(
+    set: &SnippetSet,
     snippet: &CompiledSnippet,
     node: &AbbrNode,
     remainder: &str,
@@ -834,7 +850,7 @@ fn copy_bindings<'b>(
     outer: Option<&Item>,
 ) -> Result<Cow<'b, [(String, Binding)]>, RenderError> {
     if value_arg {
-        let resolved = resolve_item_args(&node.args, item, outer).map_err(|message| {
+        let resolved = resolve_item_args(&node.args, item, outer, set).map_err(|message| {
             RenderError::ArgBinding {
                 trigger: snippet.trigger.clone(),
                 message,
@@ -1215,7 +1231,39 @@ fn resolve_markers(
         }
         node.args = new_args;
 
+        // A marker in the repeat spec — the collection name of `*@${to}` or a
+        // filter value like `?value@${from}` — is value-or-default text too,
+        // so a composite can repeat over a collection its caller names.
+        match &mut node.repeat {
+            Repeat::Source { name, filter } => {
+                if markers.contains_any(name) {
+                    *name = markers.substitute_text(name, bindings);
+                }
+                resolve_filter_markers(filter, bindings, markers);
+            }
+            Repeat::Subject { filter } => resolve_filter_markers(filter, bindings, markers),
+            Repeat::Count(_) | Repeat::Inline(_) => {}
+        }
+
         resolve_markers(&mut node.children, bindings, shared_ids, markers);
+    }
+}
+
+/// Resolve argument markers inside a repeat filter's predicate values.
+fn resolve_filter_markers(
+    filter: &mut Filter,
+    bindings: &[(String, Binding)],
+    markers: &ArgMarkers,
+) {
+    for predicate in &mut filter.predicates {
+        let Some(PredicateOp::Eq(text) | PredicateOp::Glob(text) | PredicateOp::In(text)) =
+            &mut predicate.op
+        else {
+            continue;
+        };
+        if markers.contains_any(text) {
+            *text = markers.substitute_text(text, bindings);
+        }
     }
 }
 
@@ -1349,31 +1397,38 @@ fn arg_is_item_token(arg: &str) -> bool {
     item_token(arg).is_some()
 }
 
-/// Validate an item token's raw `|transform` name.
+/// Validate an item token's raw `|transform` name against the case
+/// transforms and the set's maps.
 ///
 /// # Errors
 /// A message naming the bad transform and the valid names.
-fn parse_arg_transform(raw: Option<&str>) -> Result<Option<CaseTransform>, String> {
+fn parse_arg_transform(raw: Option<&str>, set: &SnippetSet) -> Result<Option<Transform>, String> {
     let Some(name) = raw else {
         return Ok(None);
     };
     if name.contains('|') {
-        return Err("at most one case transform per reference".to_owned());
+        return Err("at most one transform per reference".to_owned());
     }
-    CaseTransform::parse(name).map(Some).ok_or_else(|| {
-        format!(
-            "unknown case transform `{name}` (expected one of: {})",
-            crate::snippet::transform::TRANSFORM_NAMES.join(", ")
-        )
-    })
+    match Transform::parse(name) {
+        Some(Transform::Map(map)) if !set.maps().contains_key(&map) => Err(format!(
+            "unknown transform `{name}` (expected one of: {})",
+            set.transform_names()
+        )),
+        Some(transform) => Ok(Some(transform)),
+        None => Err(format!(
+            "unknown transform `{name}` (expected one of: {})",
+            set.transform_names()
+        )),
+    }
 }
 
 /// Resolve each argument against the current `item` and enclosing `outer` item:
 /// a whole `${value…}`/`${outer…}` token becomes that item's value (or
-/// `.member`, or its `:default`), re-cased by its `|transform`; with no item a
-/// bare token is **dropped** so its parameter falls back to its own tabstop,
-/// mirroring the body behaviour. Transforms re-case data-supplied text only:
-/// a `:default` (caller-written) always passes through verbatim.
+/// `.member`, or its `:default`), rewritten by its `|transform` (a case
+/// transform, or one of `set`'s maps); with no item a bare token is
+/// **dropped** so its parameter falls back to its own tabstop, mirroring the
+/// body behaviour. Transforms rewrite data-supplied text only: a `:default`
+/// (caller-written) always passes through verbatim.
 ///
 /// # Errors
 /// A message when a token carries an unknown or chained `|transform`.
@@ -1381,6 +1436,7 @@ fn resolve_item_args(
     args: &[String],
     item: Option<&Item>,
     outer: Option<&Item>,
+    set: &SnippetSet,
 ) -> Result<Vec<String>, String> {
     let mut out = Vec::with_capacity(args.len());
     for arg in args {
@@ -1388,9 +1444,9 @@ fn resolve_item_args(
             out.push(arg.clone());
             continue;
         };
-        let transform = parse_arg_transform(tok.transform)?;
-        let cased = |text: String| match transform {
-            Some(t) => t.apply(&text),
+        let transform = parse_arg_transform(tok.transform, set)?;
+        let cased = |text: String| match &transform {
+            Some(t) => t.apply(&text, set.maps()),
             None => text,
         };
         let src = if tok.outer { outer } else { item };
@@ -1976,6 +2032,25 @@ mod tests {
             ),
             // A composite that references another composite (`cls`).
             composite("nest", vec![], "cls:Inner", &[]),
+            // A composite whose repeat spec names its caller's collections:
+            // the source (`*@${b}`) and a membership filter (`?value@${a}`).
+            composite(
+                "zipc",
+                vec![
+                    ParamDef {
+                        name: "a".to_owned(),
+                        kind: ParamKind::Ident,
+                        default: None,
+                    },
+                    ParamDef {
+                        name: "b".to_owned(),
+                        kind: ParamKind::Ident,
+                        default: None,
+                    },
+                ],
+                "csv*@${b}?value@${a}",
+                &[],
+            ),
             // Two params passed through to one sub-trigger's arg list, for the
             // pass-through / interior-argument tests.
             composite(
@@ -2685,7 +2760,7 @@ mod tests {
         assert_eq!(trigger, "fn");
         assert_eq!(
             message,
-            "unknown case transform `bogus` \
+            "unknown transform `bogus` \
              (expected one of: camel, kebab, lower, pascal, snake, upper)"
         );
     }
@@ -2696,7 +2771,7 @@ mod tests {
         let RenderError::ArgBinding { message, .. } = err else {
             panic!("expected an arg-binding error, got {err:?}");
         };
-        assert_eq!(message, "at most one case transform per reference");
+        assert_eq!(message, "at most one transform per reference");
     }
 
     #[test]
@@ -3404,5 +3479,217 @@ mod tests {
     #[test]
     fn repeat_copies_record_requires_once() {
         assert_eq!(requires_of("hmap*3", &ctx()), ["std::collections::HashMap"]);
+    }
+
+    // --- zips: outer references and collection membership ------------------
+
+    /// Two overlapping collections: `A` = x, y, z and `B` = y, z, w.
+    fn pair_ctx() -> ExpansionContext {
+        let mut ctx = ctx_with("A", &["x", "y", "z"]);
+        ctx.collections.insert(
+            "B".to_owned(),
+            Collection {
+                items: ["y", "z", "w"].into_iter().map(Item::new).collect(),
+            },
+        );
+        ctx
+    }
+
+    #[test]
+    fn outer_reference_predicate_zips_nested_repeats_by_value() {
+        // `?value=@outer` keeps only the inner item equal to the enclosing
+        // one: a zip by value instead of a cross product.
+        let e = expand(
+            "impl*@A>dv*@B?value=@outer",
+            &pair_ctx(),
+            TabstopMode::Strip,
+        );
+        for pair in ["y.y", "z.z"] {
+            assert!(e.body.contains(pair), "missing {pair} in:\n{}", e.body);
+        }
+        for stray in ["x.", ".w", "y.z", "z.y"] {
+            assert!(
+                !e.body.contains(stray),
+                "unexpected {stray} in:\n{}",
+                e.body
+            );
+        }
+        // The `impl x` copy still renders — with nothing inside.
+        assert!(e.body.contains("impl x {"), "{}", e.body);
+    }
+
+    #[test]
+    fn outer_reference_resolves_a_member_of_the_enclosing_item() {
+        // `?type=@outer.type` pairs items by a member rather than their value.
+        let mut ctx = ctx();
+        let typed = |name: &str, ty: &str| {
+            let mut item = Item::new(name);
+            item.members.insert("type".to_owned(), ty.to_owned());
+            item
+        };
+        ctx.collections.insert(
+            "A".to_owned(),
+            Collection {
+                items: vec![typed("x", "f64"), typed("tag", "String")],
+            },
+        );
+        ctx.collections.insert(
+            "B".to_owned(),
+            Collection {
+                items: vec![typed("label", "String"), typed("y", "f64")],
+            },
+        );
+        let e = expand("impl*@A>dv*@B?type=@outer.type", &ctx, TabstopMode::Strip);
+        assert!(e.body.contains("x.y"), "{}", e.body);
+        assert!(e.body.contains("tag.label"), "{}", e.body);
+        assert!(!e.body.contains("x.label"), "{}", e.body);
+    }
+
+    #[test]
+    fn outer_reference_without_an_enclosing_item_keeps_nothing() {
+        // No enclosing item: the reference cannot resolve, so the predicate
+        // fails for every item — zero copies, not a stray blank one.
+        let e = expand("csv*@B?value=@outer", &pair_ctx(), TabstopMode::Strip);
+        assert_eq!(e.body.trim(), "");
+        // Negated, it keeps everything.
+        let e = expand("csv*@B?!value=@outer", &pair_ctx(), TabstopMode::Strip);
+        assert_eq!(e.body, "y,\nz,\nw");
+    }
+
+    #[test]
+    fn membership_predicate_keeps_items_another_collection_has() {
+        // `?value@A`: the fields of B that A also has (a `From` impl's body);
+        // negated, the ones A lacks (what still needs a value).
+        let e = expand("csv*@B?value@A", &pair_ctx(), TabstopMode::Strip);
+        assert_eq!(e.body, "y,\nz");
+        let e = expand("csv*@B?!value@A", &pair_ctx(), TabstopMode::Strip);
+        assert_eq!(e.body, "w");
+        // An unknown collection contains nothing.
+        let e = expand("csv*@B?value@Nope", &pair_ctx(), TabstopMode::Strip);
+        assert_eq!(e.body.trim(), "");
+    }
+
+    #[test]
+    fn membership_matches_a_candidate_by_its_name_member_too() {
+        // A qualified variant (`Msg::Quit`, name `Quit`) is "in" a collection
+        // of bare names, and vice versa.
+        let mut ctx = ctx_with("Handled", &["Quit", "Move"]);
+        let mut quit = Item::new("Msg::Quit");
+        quit.members.insert("name".to_owned(), "Quit".to_owned());
+        let mut write = Item::new("Msg::Write(..)");
+        write.members.insert("name".to_owned(), "Write".to_owned());
+        ctx.collections.insert(
+            "Msg".to_owned(),
+            Collection {
+                items: vec![quit, write],
+            },
+        );
+        let e = expand("csv*@Msg?!name@Handled", &ctx, TabstopMode::Strip);
+        assert_eq!(e.body, "Msg::Write(..)");
+        let e = expand("csv*@Handled?value@Msg", &ctx, TabstopMode::Strip);
+        assert_eq!(e.body, "Quit");
+    }
+
+    #[test]
+    fn composite_params_resolve_inside_repeat_specs() {
+        // `convert:A,B` style: the composite's `expands` repeats over a
+        // collection the caller names and filters by another.
+        let e = expand("zipc:A,B", &pair_ctx(), TabstopMode::Strip);
+        assert_eq!(e.body, "y,\nz");
+        let e = expand("zipc:B,A", &pair_ctx(), TabstopMode::Strip);
+        assert_eq!(e.body, "y,\nz");
+    }
+
+    // --- maps: `|name` lookups declared by the pack ------------------------
+
+    fn ts_maps() -> BTreeMap<String, crate::snippet::transform::TypeMap> {
+        BTreeMap::from([(
+            "ts".to_owned(),
+            crate::snippet::transform::TypeMap::new(
+                [("f64", "number"), ("String", "string"), ("Vec<*>", "*[]")]
+                    .map(|(k, v)| (k.to_owned(), v.to_owned())),
+            ),
+        )])
+    }
+
+    /// The fixture set plus a `tsf` field body that maps its type with `|ts`,
+    /// and a `|ts` map.
+    fn map_set() -> SnippetSet {
+        let mut snippets = base_fixtures();
+        snippets.push(snip("tsf", vec![], "${value}: ${value.type|ts:any};\n"));
+        snippets.push(snip(
+            "tsp",
+            vec![ParamDef {
+                name: "ty".to_owned(),
+                kind: crate::config::schema::ParamKind::Str,
+                default: Some("unknown".to_owned()),
+            }],
+            "let v: ${ty|ts};\n",
+        ));
+        SnippetSet::from_compiled(snippets).with_maps(ts_maps())
+    }
+
+    fn typed_ctx() -> ExpansionContext {
+        let mut ctx = ctx();
+        let typed = |name: &str, ty: &str| {
+            let mut item = Item::new(name);
+            item.members.insert("type".to_owned(), ty.to_owned());
+            item
+        };
+        ctx.collections.insert(
+            "Flds".to_owned(),
+            Collection {
+                items: vec![
+                    typed("x", "f64"),
+                    typed("tags", "Vec<String>"),
+                    typed("origin", "Point"),
+                ],
+            },
+        );
+        ctx
+    }
+
+    fn expand_with(set: &SnippetSet, abbr: &str, ctx: &ExpansionContext) -> Expansion {
+        let abbr = parse(abbr).expect("abbreviation should parse");
+        render(&abbr, set, ctx, TabstopMode::Strip).expect("abbreviation should render")
+    }
+
+    #[test]
+    fn map_transform_rewrites_a_member_in_a_body() {
+        let e = expand_with(&map_set(), "tsf*@Flds", &typed_ctx());
+        // Exact entry, a `*` pattern whose capture maps again, and
+        // passthrough for a type the map does not know.
+        assert_eq!(e.body, "x: number;\ntags: string[];\norigin: Point;");
+        // The `:default` is author text: never mapped, and still a tabstop
+        // placeholder when there is no data.
+        let e = expand_with(&map_set(), "tsf", &ctx());
+        assert_eq!(e.body, ": any;");
+    }
+
+    #[test]
+    fn map_transform_applies_to_arguments_and_parameters() {
+        // In argument position (`${value.type|ts}`) and on a bound parameter
+        // (`${ty|ts}` in the body).
+        let e = expand_with(&map_set(), "tsp:${value.type|ts}*@Flds", &typed_ctx());
+        assert_eq!(e.body, "let v: number;\nlet v: string[];\nlet v: Point;");
+        let e = expand_with(&map_set(), "tsp:f64", &ctx());
+        assert_eq!(e.body, "let v: number;");
+        // Unbound: the default placeholder, verbatim.
+        let e = expand_with(&map_set(), "tsp", &ctx());
+        assert_eq!(e.body, "let v: unknown;");
+    }
+
+    #[test]
+    fn unknown_map_in_an_argument_lists_the_maps_too() {
+        let abbr = parse("tsp:${value.type|sql}*@Flds").expect("parses");
+        let err = render(&abbr, &map_set(), &typed_ctx(), TabstopMode::Strip)
+            .expect_err("unknown map should fail");
+        let RenderError::ArgBinding { message, .. } = err else {
+            panic!("expected an arg-binding error, got {err:?}");
+        };
+        assert_eq!(
+            message,
+            "unknown transform `sql` (expected one of: camel, kebab, lower, pascal, snake, upper, ts)"
+        );
     }
 }

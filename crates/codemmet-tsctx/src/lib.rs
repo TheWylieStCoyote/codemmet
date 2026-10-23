@@ -1864,6 +1864,47 @@ mod tests {
 
     #[cfg(feature = "lang-rust")]
     #[test]
+    fn rust_variant_payloads_are_described() {
+        let map = cols(
+            "rust",
+            "enum Msg {\n    Quit,\n    Move { x: i32, y: i32 },\n    Write(String),\n    Pair(i32, Vec<u8>),\n    Code = 7,\n}\nfn f() { §\n}\n",
+        );
+        let msg = &map["Msg"];
+        let member = |i: usize, key: &str| msg.items[i].members.get(key).cloned();
+        // A unit variant: kind only, `bind` is the plain qualified name.
+        assert_eq!(member(0, "kind").as_deref(), Some("unit"));
+        assert_eq!(member(0, "bind").as_deref(), Some("Msg::Quit"));
+        assert_eq!(member(0, "payload"), None);
+        assert_eq!(member(0, "arity"), None);
+        // A struct variant binds its fields by name.
+        assert_eq!(member(1, "kind").as_deref(), Some("struct"));
+        assert_eq!(member(1, "payload").as_deref(), Some("x: i32, y: i32"));
+        assert_eq!(member(1, "bind").as_deref(), Some("Msg::Move { x, y }"));
+        assert_eq!(member(1, "args").as_deref(), Some("x, y"));
+        assert_eq!(member(1, "arity").as_deref(), Some("2"));
+        let fields = &msg.items[1].collections["fields"];
+        assert_eq!(fields.items[1].value, "y");
+        assert_eq!(fields.items[1].members["type"], "i32");
+        assert!(!fields.items[1].members.contains_key("index"));
+        // A one-field tuple variant binds `v`; several bind `v0`, `v1`, ….
+        assert_eq!(member(2, "kind").as_deref(), Some("tuple"));
+        assert_eq!(member(2, "payload").as_deref(), Some("String"));
+        assert_eq!(member(2, "bind").as_deref(), Some("Msg::Write(v)"));
+        assert_eq!(member(2, "args").as_deref(), Some("v"));
+        assert_eq!(member(2, "arity").as_deref(), Some("1"));
+        assert_eq!(member(3, "payload").as_deref(), Some("i32, Vec<u8>"));
+        assert_eq!(member(3, "bind").as_deref(), Some("Msg::Pair(v0, v1)"));
+        let fields = &msg.items[3].collections["fields"];
+        assert_eq!(fields.items[1].value, "v1");
+        assert_eq!(fields.items[1].members["type"], "Vec<u8>");
+        assert_eq!(fields.items[1].members["index"], "1");
+        // An explicit discriminant is the `value` member, as in C.
+        assert_eq!(member(4, "value").as_deref(), Some("7"));
+        assert_eq!(member(0, "value"), None);
+    }
+
+    #[cfg(feature = "lang-rust")]
+    #[test]
     fn rust_builtin_enums_unless_the_file_defines_them() {
         let map = cols(
             "rust",
@@ -2001,7 +2042,17 @@ fn f() { §
             "type Color int\n\nconst (\n\tRed Color = iota\n\tGreen\n\tBlue\n)\n\nconst (\n\tA = 1\n\tB = 2\n)\n\nfunc f() {\n\t§\n}\n",
         );
         assert_eq!(values(&map, "Color"), ["Red", "Green", "Blue"]);
+        // The plain counting form numbers its names.
+        assert_eq!(map["Color"].items[0].members["value"], "0");
+        assert_eq!(map["Color"].items[2].members["value"], "2");
         assert!(!map.contains_key("A"), "non-iota consts are not a group");
+        // Arithmetic on iota is left unvalued.
+        let map = cols(
+            "go",
+            "type Flag int\n\nconst (\n\tA Flag = 1 << iota\n\tB\n)\n\nfunc f() {\n\t§\n}\n",
+        );
+        assert_eq!(values(&map, "Flag"), ["A", "B"]);
+        assert!(!map["Flag"].items[0].members.contains_key("value"));
     }
 
     #[cfg(feature = "lang-python")]

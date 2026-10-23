@@ -22,9 +22,13 @@
 //! Beyond `type`, extraction fills the blessed member vocabulary where the
 //! grammar carries the data (IM1, see `ZIPPED_COLLECTIONS_PLAN.md`): `vis`
 //! (Rust field visibility), `optional` (TS `?`), `default` (Python field
-//! initializers), `value` (C/TS enum assigned values, Python enum members),
-//! and `name` (a Rust variant's bare name, since its item value is the
-//! match-ready pattern). Members that render as optional prefixes/suffixes
+//! initializers), `value` (C/TS enum assigned values, Python enum members,
+//! Rust discriminants, a plain Go iota count), and `name` (a Rust variant's
+//! bare name, since its item value is the match-ready pattern). A Rust
+//! variant also describes its payload — `kind`, `payload`, `bind`, `args`,
+//! `arity` and a `fields` sub-collection (see [`rust_variant_item`]) — so a
+//! body can bind and use what the variant carries, not just match it.
+//! Members that render as optional prefixes/suffixes
 //! are **display-ready** — they carry their own spacing and punctuation
 //! (`vis` = `"pub "`, `optional` = `"?"`) — so bodies can join them without
 //! conditionals and an absent member simply vanishes.
@@ -272,16 +276,137 @@ fn rust_enums(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>
         let items = field_children(def, "body")
             .into_iter()
             .filter(|v| v.kind() == "enum_variant")
-            .filter_map(|v| {
-                let bare = field_text(v, "name", text)?;
-                let pattern = rust_variant_pattern(v, text)?;
-                let mut item = Item::new(format!("{name}::{pattern}"));
-                item.members.insert("name".to_owned(), bare.to_owned());
-                Some(item)
-            })
+            .filter_map(|v| rust_variant_item(name, v, text))
             .collect();
         insert_def(map, name, items);
     }
+}
+
+/// A Rust variant's payload as `(bound name, type)` pairs: a tuple variant's
+/// fields are named `v` (one) or `v0`, `v1`, … (several); a struct variant's
+/// keep their names. Empty for a unit variant.
+fn rust_variant_fields(body: Option<Node<'_>>, text: &str) -> Vec<(String, String)> {
+    match body.map(|b| (b.kind(), b)) {
+        Some(("ordered_field_declaration_list", b)) => {
+            let mut cursor = b.walk();
+            let types: Vec<String> = b
+                .children_by_field_name("type", &mut cursor)
+                .map(|t| clean_type(node_text(t, text)))
+                .collect();
+            let single = types.len() == 1;
+            types
+                .into_iter()
+                .enumerate()
+                .map(|(i, ty)| {
+                    let name = if single {
+                        "v".to_owned()
+                    } else {
+                        format!("v{i}")
+                    };
+                    (name, ty)
+                })
+                .collect()
+        }
+        Some(("field_declaration_list", b)) => {
+            let mut cursor = b.walk();
+            b.children(&mut cursor)
+                .filter(|f| f.kind() == "field_declaration")
+                .filter_map(|f| {
+                    let name = field_text(f, "name", text)?;
+                    let ty = field_text(f, "type", text)
+                        .map(clean_type)
+                        .unwrap_or_default();
+                    Some((name.to_owned(), ty))
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// One Rust variant as an item. The value is the qualified wildcard pattern
+/// (`Msg::Write(..)`); the members describe the payload so a body can bind
+/// and use it:
+///
+/// * `name` — the bare name (`Write`);
+/// * `kind` — `unit`, `tuple`, or `struct`;
+/// * `payload` — the payload as written, comma-joined (`String`, `i32, i32`,
+///   or `x: i32, y: i32` for a struct variant); absent on a unit variant;
+/// * `bind` — a pattern that **binds** every payload field: `Msg::Write(v)`
+///   (one field), `Msg::Pair(v0, v1)`, `Msg::Move { x, y }`; the bare
+///   qualified name for a unit variant;
+/// * `args` — the bound names, comma-joined (`v`, `v0, v1`, `x, y`);
+/// * `arity` — the number of payload fields, absent for a unit variant;
+/// * `value` — an explicit discriminant (`Code = 7` → `7`).
+///
+/// The payload fields also form a `fields` sub-collection (`*@outer.fields`
+/// inside the variant's copy): one item per field, valued by its bound name,
+/// with its `type` (and, for a tuple variant, its 0-based `index`).
+fn rust_variant_item(enum_name: &str, variant: Node<'_>, text: &str) -> Option<Item> {
+    let bare = field_text(variant, "name", text)?;
+    let body = variant.child_by_field_name("body");
+    let fields = rust_variant_fields(body, text);
+    let is_struct = body.is_some_and(|b| b.kind() == "field_declaration_list");
+    let names: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+    let (value, kind, bind, payload) = match (body.map(|b| b.kind()), is_struct) {
+        (Some("ordered_field_declaration_list"), _) => (
+            format!("{enum_name}::{bare}(..)"),
+            "tuple",
+            format!("{enum_name}::{bare}({})", names.join(", ")),
+            fields
+                .iter()
+                .map(|(_, t)| t.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        (_, true) => (
+            format!("{enum_name}::{bare} {{ .. }}"),
+            "struct",
+            format!("{enum_name}::{bare} {{ {} }}", names.join(", ")),
+            fields
+                .iter()
+                .map(|(n, t)| format!("{n}: {t}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        _ => (
+            format!("{enum_name}::{bare}"),
+            "unit",
+            format!("{enum_name}::{bare}"),
+            String::new(),
+        ),
+    };
+    let mut item = Item::new(value);
+    item.members.insert("name".to_owned(), bare.to_owned());
+    item.members.insert("kind".to_owned(), kind.to_owned());
+    item.members.insert("bind".to_owned(), bind);
+    if !fields.is_empty() {
+        item.members.insert("payload".to_owned(), payload);
+        item.members.insert("args".to_owned(), names.join(", "));
+        item.members
+            .insert("arity".to_owned(), fields.len().to_string());
+        let sub = fields
+            .iter()
+            .enumerate()
+            .map(|(i, (name, ty))| {
+                let mut field = Item::new(name.as_str());
+                if !ty.is_empty() {
+                    field.members.insert("type".to_owned(), ty.clone());
+                }
+                if !is_struct {
+                    field.members.insert("index".to_owned(), i.to_string());
+                }
+                field
+            })
+            .collect();
+        item.collections
+            .insert("fields".to_owned(), Collection { items: sub });
+    }
+    if let Some(discriminant) = field_text(variant, "value", text) {
+        item.members
+            .insert("value".to_owned(), discriminant.trim().to_owned());
+    }
+    Some(item)
 }
 
 fn rust_structs(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collection>) {
@@ -389,11 +514,27 @@ fn go_iota_groups(root: Node<'_>, text: &str, map: &mut BTreeMap<String, Collect
         if !uses_iota {
             continue;
         }
+        // The plain counting form — the first spec is exactly `= iota` and no
+        // later spec writes a value — numbers its names 0, 1, 2, … as the
+        // `value` member. Arithmetic on iota (`1 << iota`, `iota + 1`) is
+        // left unvalued rather than guessed.
+        let plain_count = specs
+            .first()
+            .and_then(|s| s.child_by_field_name("value"))
+            .is_some_and(|v| node_text(v, text).trim() == "iota")
+            && specs[1..]
+                .iter()
+                .all(|s| s.child_by_field_name("value").is_none());
         let mut items = Vec::new();
         for spec in &specs {
             let mut cursor = spec.walk();
             for name in spec.children_by_field_name("name", &mut cursor) {
-                items.push(Item::new(node_text(name, text)));
+                let mut item = Item::new(node_text(name, text));
+                if plain_count {
+                    item.members
+                        .insert("value".to_owned(), items.len().to_string());
+                }
+                items.push(item);
             }
         }
         insert_def(map, &clean_type(ty), items);
@@ -498,21 +639,6 @@ fn python_classes(root: Node<'_>, text: &str, enums: bool, map: &mut BTreeMap<St
         }
         insert_def(map, name, items);
     }
-}
-
-/// A Rust `enum_variant`'s match pattern: the bare name for a unit variant, a
-/// wildcard binding for a payload variant (`Write(..)` for a tuple variant,
-/// `Move { .. }` for a struct variant). This is minimal by design — it binds
-/// nothing, so the arm compiles without naming each field.
-fn rust_variant_pattern(variant: Node<'_>, text: &str) -> Option<String> {
-    let name = field_text(variant, "name", text)?;
-    Some(
-        match variant.child_by_field_name("body").map(|b| b.kind()) {
-            Some("ordered_field_declaration_list") => format!("{name}(..)"),
-            Some("field_declaration_list") => format!("{name} {{ .. }}"),
-            _ => name.to_owned(),
-        },
-    )
 }
 
 /// A struct field whose name is in a `name` field and type in a `type` field

@@ -283,6 +283,10 @@ body = '''...'''
 
 [snippets.epr]
 disabled = true             # in a user pack: remove/disable a builtin trigger
+
+[maps.sql]                  # optional, file level: a lookup table for `${…|sql}`
+i32 = "INTEGER"             # exact spelling → replacement
+"Option<*>" = "*"           # a `*` pattern: the captured text is mapped, then substituted
 ```
 
 Field by field:
@@ -304,6 +308,7 @@ Field by field:
 | `disabled` | `[snippets.<trigger>]` | In a user pack, removes the builtin of this name. |
 | `expands` | `[snippets.<trigger>]` | Makes this a [composite](#composite-snippets): an abbreviation re-expanded at render time (mutually exclusive with `body`). |
 | `options` | `[snippets.<trigger>.options]` | Named selectable fragments for a composite; the caller picks them by name. |
+| `maps` | `[maps.<name>]` | Optional, file level. A lookup table applied as `${…\|<name>}` — see [type maps](#type-maps). Entries merge per key across packs. |
 
 ## Parameters and argument binding
 
@@ -370,7 +375,7 @@ A body is LSP snippet syntax plus three codemmet extensions.
 - Escape a literal dollar sign as `\$`. In strip mode it renders as `$`; in
   keep mode it stays escaped as `\$`.
 
-### Case transforms on parameters
+### Transforms on parameters
 
 `${name|snake}` (also `camel`, `pascal`, `upper`, `kebab`, `lower`) re-cases
 the parameter's value before inserting it, so one argument can appear in
@@ -401,7 +406,51 @@ placeholder is the declared `default`, verbatim. The engine cannot re-case
 text the user has yet to type, so `struct ${name|pascal}` + `fn
 new_${name|snake}` gives no case linkage while typing into the tabstop; supply
 the argument (or drive the snippet from a collection) to get the re-casing.
-One transform per reference; an unknown or chained name fails `check`.
+One transform per reference; an unknown or chained name fails `check`. A
+`|name` that is not a case transform must name a [map](#type-maps) declared
+in the merged set.
+
+### Type maps
+
+A `[maps.<name>]` table turns `|<name>` into a **lookup** instead of a
+re-casing: the referenced text (a member, an item, or a bound parameter) is
+replaced by its entry, and text with no entry passes through unchanged.
+
+```toml
+[maps.cpp]
+f64 = "double"
+String = "std::string"
+"Vec<*>" = "std::vector<*>"
+"HashMap<*, *>" = "std::unordered_map<*, *>"
+"Option<*>" = "std::optional<*>"
+
+[snippets.member]
+body = '''
+${value.type|cpp:T} ${value};
+'''
+```
+
+An exact key wins; otherwise the **pattern** with the most literal characters
+that matches is used. Each `*` in a pattern matches a run of text (the literal
+parts between stars are found left to right); every captured run is mapped
+again, then the runs replace the value's `*`s in order — so `Vec<Option<f64>>`
+becomes `std::vector<std::optional<double>>`. A bare `"*"` key is a catch-all.
+
+Every builtin pack declares `native` — spellings from the other supported
+languages mapped to this one's, with keys that are *never* this language's
+own types, so a same-language source renders as written — and the Rust,
+Python, TypeScript and Go packs declare `sql`. The `field` snippets write
+`${value.type|native}`, and `sqlcol` writes `${value.type|sql}`. Maps merge
+**per entry** across packs (inherited, builtin, user, project), so a user
+`rust.toml` with
+
+```toml
+[maps.native]
+Decimal = "rust_decimal::Decimal"
+```
+
+adds one spelling without restating the rest. A map may not be named after a
+case transform, and `check` rejects a body whose `|name` matches neither.
 
 ### Indentation must be tabs
 

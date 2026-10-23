@@ -8,7 +8,7 @@ use crate::config::schema::{FileDef, OnExists, ParamDef, SnippetDef, SnippetFile
 use crate::context::Scope;
 use crate::snippet::ir::{Span, Template};
 use crate::snippet::template::{TemplateError, parse_template};
-use crate::snippet::transform::CaseTransform;
+use crate::snippet::transform::{CaseTransform, Transform, TypeMap};
 
 /// A snippet definition compiled and validated for rendering.
 #[derive(Debug, Clone)]
@@ -132,6 +132,8 @@ pub struct CompiledVariant {
 #[derive(Debug, Clone, Default)]
 pub struct SnippetSet {
     snippets: BTreeMap<String, CompiledSnippet>,
+    /// The merged `[maps.<name>]` tables, applied by `|<name>` transforms.
+    maps: BTreeMap<String, TypeMap>,
 }
 
 /// A snippet pack that failed to load or validate.
@@ -154,6 +156,16 @@ pub enum ConfigError {
         /// The TOML deserialization error.
         #[source]
         source: Box<toml::de::Error>,
+    },
+    /// A `[maps.<name>]` table is malformed.
+    #[error("invalid map `{name}` in {origin}: {message}")]
+    Map {
+        /// The map's name.
+        name: String,
+        /// Which pack it came from.
+        origin: String,
+        /// What is wrong with it.
+        message: String,
     },
     /// A snippet body violates the template rules.
     #[error("invalid snippet `{trigger}` in {origin}: {source}")]
@@ -186,7 +198,37 @@ impl SnippetSet {
     /// error messages (builtin name or file path).
     pub fn compile(sources: &[(&str, &SnippetFile)]) -> Result<Self, ConfigError> {
         let mut snippets = BTreeMap::new();
+        let mut maps: BTreeMap<String, TypeMap> = BTreeMap::new();
         for &(origin, file) in sources {
+            // Maps merge per entry: a later pack's `[maps.native]` adds to or
+            // overrides spellings of an earlier one's, never replaces it.
+            for (name, entries) in &file.maps {
+                if !is_word(name) {
+                    return Err(ConfigError::Map {
+                        name: name.clone(),
+                        origin: origin.to_owned(),
+                        message: "map name must be a word ([A-Za-z_][A-Za-z0-9_]*)".to_owned(),
+                    });
+                }
+                if CaseTransform::parse(name).is_some() {
+                    return Err(ConfigError::Map {
+                        name: name.clone(),
+                        origin: origin.to_owned(),
+                        message: "a map may not shadow a case transform".to_owned(),
+                    });
+                }
+                let map = maps.entry(name.clone()).or_default();
+                for (key, value) in entries {
+                    if key.trim().is_empty() {
+                        return Err(ConfigError::Map {
+                            name: name.clone(),
+                            origin: origin.to_owned(),
+                            message: "an entry's key may not be empty".to_owned(),
+                        });
+                    }
+                    map.insert(key.trim().to_owned(), value.clone());
+                }
+            }
             for (trigger, def) in &file.snippets {
                 if !is_word(trigger) {
                     return Err(ConfigError::Invalid {
@@ -203,12 +245,14 @@ impl SnippetSet {
                 snippets.insert(trigger.clone(), compiled);
             }
         }
-        let set = Self { snippets };
-        // Composite and multi-file validation are whole-set passes: a fragment
-        // may reference any trigger in the *merged* set (including ones a later
-        // pack added), so they can only run once the merge is complete.
+        let set = Self { snippets, maps };
+        // Composite, multi-file, and map-reference validation are whole-set
+        // passes: a fragment may reference any trigger (and a body any map) in
+        // the *merged* set, including ones a later pack added, so they can
+        // only run once the merge is complete.
         set.validate_composites()?;
         set.validate_multifile()?;
+        set.validate_map_references()?;
         Ok(set)
     }
 
@@ -219,7 +263,61 @@ impl SnippetSet {
                 .into_iter()
                 .map(|s| (s.trigger.clone(), s))
                 .collect(),
+            maps: BTreeMap::new(),
         }
+    }
+
+    /// The same set with `maps` attached (fixtures, tests).
+    #[must_use]
+    pub fn with_maps(mut self, maps: BTreeMap<String, TypeMap>) -> Self {
+        self.maps = maps;
+        self
+    }
+
+    /// The merged `[maps.<name>]` tables, by name.
+    pub const fn maps(&self) -> &BTreeMap<String, TypeMap> {
+        &self.maps
+    }
+
+    /// Every `|name` transform a body or argument may use: the case
+    /// transforms, then this set's map names — for error messages.
+    pub fn transform_names(&self) -> String {
+        let mut names: Vec<&str> = crate::snippet::transform::TRANSFORM_NAMES.to_vec();
+        names.extend(self.maps.keys().map(String::as_str));
+        names.join(", ")
+    }
+
+    /// Validate that every `|name` transform in a body names a case transform
+    /// or a map of the merged set.
+    fn validate_map_references(&self) -> Result<(), ConfigError> {
+        for snippet in self.snippets.values() {
+            let templates = std::iter::once(&snippet.template)
+                .chain(snippet.variants.iter().map(|v| &v.template));
+            for template in templates {
+                for span in template.lines.iter().flat_map(|line| line.spans.iter()) {
+                    let (Span::Param { transform, .. }
+                    | Span::ItemValue { transform, .. }
+                    | Span::Variable { transform, .. }) = span
+                    else {
+                        continue;
+                    };
+                    if let Some(Transform::Map(name)) = transform
+                        && !self.maps.contains_key(name)
+                    {
+                        return Err(ConfigError::Invalid {
+                            trigger: snippet.trigger.clone(),
+                            origin: "transform".to_owned(),
+                            message: format!(
+                                "unknown transform `{name}` (expected one of: {}; a map is \
+                                 declared as `[maps.{name}]`)",
+                                self.transform_names()
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Look up an exact trigger.
@@ -1957,5 +2055,121 @@ mod tests {
         assert_eq!(rest, "");
 
         assert!(set.resolve_word("zzz").is_none());
+    }
+
+    // --- maps ---------------------------------------------------------------
+
+    #[test]
+    fn maps_merge_per_entry_and_validate_body_references() {
+        let base = file(
+            "base",
+            "[meta]\nlanguage = \"typescript\"\n[maps.native]\nf64 = \"number\"\nString = \"string\"\n[snippets.fld]\nbody = \"${value}: ${value.type|native};\"\n",
+        );
+        let over = file(
+            "over",
+            "[meta]\nlanguage = \"typescript\"\n[maps.native]\nString = \"str\"\n\"Vec<*>\" = \"*[]\"\n",
+        );
+        let set =
+            SnippetSet::compile(&[("base", &base), ("over", &over)]).expect("maps should compile");
+        let native = &set.maps()["native"];
+        // The base entry survives, the override replaces one spelling and
+        // adds a pattern.
+        assert_eq!(native.apply("f64"), "number");
+        assert_eq!(native.apply("String"), "str");
+        assert_eq!(native.apply("Vec<f64>"), "number[]");
+        assert_eq!(
+            set.transform_names(),
+            "camel, kebab, lower, pascal, snake, upper, native"
+        );
+    }
+
+    #[test]
+    fn unknown_map_reference_in_a_body_is_rejected() {
+        let err = compile_err(
+            "user",
+            "[meta]\nlanguage = \"rust\"\n[maps.sql]\ni32 = \"INTEGER\"\n[snippets.fld]\nbody = \"${value.type|native}\"\n",
+        );
+        assert_eq!(
+            err.to_string(),
+            "invalid snippet `fld` in transform: unknown transform `native` (expected one of: \
+             camel, kebab, lower, pascal, snake, upper, sql; a map is declared as `[maps.native]`)"
+        );
+        // A variant body is checked too.
+        let err = compile_err(
+            "user",
+            "[meta]\nlanguage = \"rust\"\n[snippets.fld]\nbody = \"x\"\n[[snippets.fld.variants]]\ncontext = \"type-body\"\nbody = \"${value|nope}\"\n",
+        );
+        assert!(
+            err.to_string().contains("unknown transform `nope`"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn map_names_must_be_words_and_not_case_transforms() {
+        let err = compile_err(
+            "user",
+            "[meta]\nlanguage = \"rust\"\n[maps.snake]\nx = \"y\"\n",
+        );
+        assert_eq!(
+            err.to_string(),
+            "invalid map `snake` in user: a map may not shadow a case transform"
+        );
+        let err = compile_err(
+            "user",
+            "[meta]\nlanguage = \"rust\"\n[maps.\"to-sql\"]\nx = \"y\"\n",
+        );
+        assert!(err.to_string().contains("map name must be a word"), "{err}");
+        let err = compile_err(
+            "user",
+            "[meta]\nlanguage = \"rust\"\n[maps.sql]\n\" \" = \"y\"\n",
+        );
+        assert!(err.to_string().contains("key may not be empty"), "{err}");
+    }
+
+    #[test]
+    fn builtin_packs_declare_a_native_map() {
+        for (lang, foreign, native) in [
+            ("typescript", "f64", "number"),
+            ("typescript", "Vec<String>", "string[]"),
+            ("typescript", "Option<i32>", "number | null"),
+            ("rust", "number", "f64"),
+            ("rust", "list[str]", "Vec<String>"),
+            ("rust", "Optional[int]", "Option<i64>"),
+            ("python", "Vec<f64>", "list[float]"),
+            ("python", "HashMap<String, i32>", "dict[str, int]"),
+            ("go", "String", "string"),
+            ("go", "Vec<u8>", "[]uint8"),
+            ("c", "i32", "int32_t"),
+            ("cpp", "String", "std::string"),
+            ("cpp", "Vec<f64>", "std::vector<double>"),
+            ("javascript", "f64", "number"),
+        ] {
+            // Through the registry, so inherited packs (C → C++, JS → TS)
+            // merge their maps.
+            let registry = crate::lang::registry::Registry::with_builtins()
+                .expect("builtin packs should load");
+            let set = &registry.language(lang).expect("language should exist").set;
+            let map = set
+                .maps()
+                .get("native")
+                .unwrap_or_else(|| panic!("{lang} pack should declare [maps.native]"));
+            assert_eq!(map.apply(foreign), native, "{lang}: {foreign}");
+            // A native spelling passes through untouched.
+            assert_eq!(map.apply("Widget"), "Widget", "{lang}");
+        }
+        // The SQL maps, where shipped.
+        for (lang, ty, sql) in [
+            ("rust", "Option<String>", "TEXT"),
+            ("rust", "i64", "INTEGER"),
+            ("python", "float", "REAL"),
+            ("typescript", "boolean", "BOOLEAN"),
+            ("go", "int64", "INTEGER"),
+        ] {
+            let registry = crate::lang::registry::Registry::with_builtins()
+                .expect("builtin packs should load");
+            let set = &registry.language(lang).expect("language should exist").set;
+            assert_eq!(set.maps()["sql"].apply(ty), sql, "{lang}: {ty}");
+        }
     }
 }

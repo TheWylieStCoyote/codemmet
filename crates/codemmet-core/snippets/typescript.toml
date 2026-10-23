@@ -116,9 +116,10 @@ import type { $1 } from "${module}";$0
 description = "object/interface field"
 # `${value}` / `${value.type}` bind to a data-driven repeat item: an
 # interface's members fill `field*@Point` (name + declared type). With no data
-# both fall back to tabstops.
+# both fall back to tabstops. `|native` maps a foreign type spelling (a Rust
+# or Python `--source`) to TypeScript's; a TypeScript type passes through.
 body = '''
-${value:name}: ${value.type:type};
+${value:name}: ${value.type|native:type};
 '''
 
 [snippets.classc]
@@ -152,3 +153,39 @@ path = "${src.dir}/${src.stem}.test.ts"
 on_exists = "create"
 primary = true
 expands = "(timport>tname*@src.fns?vis=public+tname*@src.types?vis=public)+tfn*@src.fns+tmeth*@src.methods"
+
+[snippets.sqltable]
+description = "CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field"
+params = [{ name = "name", kind = "ident", default = "Table" }]
+body = '''
+CREATE TABLE ${name|snake} (
+	${child}
+);
+'''
+
+[snippets.sqlcol]
+description = "column from an interface field: snake_case name and the `|sql` type (`sqlcol*@Point`)"
+body = '''
+${value|snake:column} ${value.type|sql:TEXT},
+'''
+
+[[snippets.sqlcol.variants]]
+when = "last"
+body = '''
+${value|snake:column} ${value.type|sql:TEXT}
+'''
+
+# `|sql`: a column type for a field's declared type — what `sqlcol` writes.
+# Integers become INTEGER, floats REAL, booleans BOOLEAN, text TEXT, byte
+# strings BLOB; an optional wrapper is unwrapped (nullability is the column's
+# business); anything else falls back to TEXT via the `*` catch-all.
+[maps.sql]
+number = "REAL"
+bigint = "INTEGER"
+boolean = "BOOLEAN"
+string = "TEXT"
+Uint8Array = "BLOB"
+Date = "TEXT"
+"* | null" = "*"
+"* | undefined" = "*"
+"*" = "TEXT"

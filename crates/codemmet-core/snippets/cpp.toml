@@ -323,3 +323,39 @@ ${value.decl:void name()} override {
 	${child}
 }
 '''
+
+# `|native` additions over the inherited C map: owning standard-library
+# types for strings, sequences, sets, maps, and optionals (C maps strings to
+# `const char*`; here they become `std::string`).
+[maps.native]
+String = "std::string"
+str = "std::string"
+"&str" = "std::string"
+string = "std::string"
+"char*" = "std::string"
+"const char*" = "std::string"
+"Vec<u8>" = "std::vector<uint8_t>"
+"Vec<*>" = "std::vector<*>"
+"HashSet<*>" = "std::unordered_set<*>"
+"BTreeSet<*>" = "std::set<*>"
+"HashMap<*, *>" = "std::unordered_map<*, *>"
+"BTreeMap<*, *>" = "std::map<*, *>"
+"Option<*>" = "std::optional<*>"
+"Box<*>" = "std::unique_ptr<*>"
+bytes = "std::vector<uint8_t>"
+"list[*]" = "std::vector<*>"
+"set[*]" = "std::unordered_set<*>"
+"dict[*, *]" = "std::unordered_map<*, *>"
+"Optional[*]" = "std::optional<*>"
+"* | None" = "std::optional<*>"
+Uint8Array = "std::vector<uint8_t>"
+"*[]" = "std::vector<*>"
+"Array<*>" = "std::vector<*>"
+"Record<string, *>" = "std::unordered_map<std::string, *>"
+"Map<*, *>" = "std::unordered_map<*, *>"
+"Set<*>" = "std::unordered_set<*>"
+"* | null" = "std::optional<*>"
+"* | undefined" = "std::optional<*>"
+"[]byte" = "std::vector<uint8_t>"
+"[]*" = "std::vector<*>"
+"map[*]*" = "std::unordered_map<*, *>"

@@ -156,6 +156,39 @@ transform. Snippet bodies can also transform declared parameters
 which is how a getter/setter pack re-cases a `maxSize` field into
 `set_max_size` per copy.
 
+### Type maps: `${value.type|native}`
+
+A collection read from one language often feeds a snippet in another — a
+TypeScript interface that mirrors a Rust struct, a `CREATE TABLE` for a
+dataclass. The field *names* carry over, but `f64` is not a TypeScript type.
+A **map** is a transform that looks text up instead of re-casing it: every
+pack declares `[maps.native]` (foreign type spellings → this language's) and
+the Rust, Python, TypeScript and Go packs add `[maps.sql]` (field types →
+column types). The `field` snippets write `${value.type|native}`, so with a
+`--source` in another language the types come out native:
+
+```sh
+codemmet expand --lang typescript --source point.rs "int:Point>field*"
+```
+
+```typescript
+interface Point {
+  x: number;
+  tags: string[];
+  label: string | null;
+}
+```
+
+given a `point.rs` with `x: f64, tags: Vec<String>, label: Option<String>`.
+A map entry is an exact spelling (`f64 = "number"`) or a **pattern** whose
+`*`s each match a run of text — mapped again, then substituted into the
+value's `*`s in order (`"Vec<*>" = "*[]"`, `"HashMap<*, *>" = "Map<*, *>"`),
+so nested types map all the way down. Text the map does not know passes
+through unchanged, which is why a same-language source renders exactly as
+written. A map name is used like a case transform — `|native`, `|sql`, in a
+body or an argument — and a pack may declare its own (`[maps.cpp]`) or add
+entries to a builtin map; see [custom snippets](snippets.md#type-maps).
+
 ### Where the collection comes from
 
 **In an editor**, codemmet extracts collections from the buffer with
@@ -170,7 +203,9 @@ tree-sitter. Three kinds are recognized:
   binding), `Color.RED` in Python, `Color.Red` for a TypeScript enum,
   `Color::Red` for a C++ `enum class`, and bare `RED` / `Red` in C and Go,
   where that is the spelling. The bare name is always the `name` member
-  (`${value.name}`). A few **well-known types** the language defines
+  (`${value.name}`), and a Rust variant also describes its payload (`kind`,
+  `payload`, `bind`, `args`, `arity`, and a `fields` sub-collection — see the
+  [member vocabulary](#member-vocabulary)). A few **well-known types** the language defines
   elsewhere are always available as collections too — Rust `Option`
   (`Some(..)`, `None`), `Result`, `Ordering` and `bool`; Python `bool`;
   `bool` in the others — so `match:r>arm*@Result` works with no definition
@@ -212,6 +247,12 @@ tmeth*@src.Point.methods?!static   # Point's instance methods
 fn*@src.fns?value~get_*            # a stub per getter
 tfn*@src.fns?!tested               # in the editor: only the functions without a test yet
 ```
+
+A Rust enum variant with a payload likewise carries a **`fields`
+sub-collection** — one item per payload field, valued by its bound name (`v`,
+`v0`, or the struct variant's field name) with its `type` (and a tuple
+field's 0-based `index`) — so `armb*@Msg>let:${value}*@outer.fields` writes
+one `let` per bound value inside each arm.
 
 Each function item also carries a **`params` sub-collection** — one item per
 parameter, value = its name, with `type` and `default` members where the
@@ -271,7 +312,12 @@ rely on these names; free-form keys still work everywhere (`--repeat`'s
 | `vis` | visibility prefix, e.g. `pub ` | Rust field visibility |
 | `default` | initializer text | Python `x: int = 0` |
 | `name` | the bare name, when the value is a qualified or richer form | enum variants (value `Msg::Write(..)`, name `Write`; `Color.RED` / `RED`) |
-| `value` | an enum member's assigned value | C `GREEN = 2`, TS `Green = 2`, Python `GREEN = 2` |
+| `value` | an enum member's assigned value | C `GREEN = 2`, TS `Green = 2`, Python `GREEN = 2`, Rust `Code = 7`, a plain Go `iota` count (`0`, `1`, …) |
+| `kind` (on a variant) | `unit`, `tuple`, or `struct` | Rust variants |
+| `payload` | a variant's payload as written, comma-joined | Rust `Write(String)` → `String`; `Pair(i32, String)` → `i32, String`; `Move { x: i32, y: i32 }` → `x: i32, y: i32`; absent on a unit variant |
+| `bind` | a pattern that **binds** every payload field | Rust `Msg::Write(v)`, `Msg::Pair(v0, v1)`, `Msg::Move { x, y }`; the plain qualified name for a unit variant |
+| `args` (on a variant) | the bound names, comma-joined | Rust `v`, `v0, v1`, `x, y` |
+| `arity` | the number of payload fields | Rust variants with a payload (`?arity=1` keeps the single-value wrappers) |
 | `params` | the declared parameter list as written, receiver removed | `src.*` functions and methods (`w: f64, h: f64`) |
 | `args` | the parameter **names**, comma-joined — for a call | `src.*` (`w, h`; Python keeps `*args, **kw`) |
 | `ret` | the return type, arrow/colon stripped; absent for none/`void` | `src.*` (`f64`, `(int, error)`, `double*`) |
@@ -432,6 +478,41 @@ Its body is `fn ${outer:group}_${value:case}()`, so each copy pairs the module
 `${outer}` falls back to its own tabstop (as here `${outer:group}`), exactly like
 `${value}` — so `mtest` on its own is still a valid single test.
 
+### Zipping by name
+
+A cross product pairs *every* outer item with *every* inner one. To pair
+items that **correspond** — the same-named field of two structs, the
+variants one enum shares with another — a filter can refer to the enclosing
+item: `?value=@outer` keeps the inner items equal to the outer item's value,
+`?type=@outer.type` the ones whose member matches the outer's. The outer
+copy still renders when nothing pairs with it (an empty `impl`), which is
+how a mismatch shows up.
+
+Often one level is enough: `?value@Other` keeps the items that *another
+collection* also has (by value, or by its `name` member), and `?!value@Other`
+the ones it lacks. The Rust builtin `convert` is a `From` impl that copies the
+fields both structs share:
+
+```sh
+codemmet expand --lang rust "convert:Raw,Point" --repeat Raw=x,y,z --repeat Point=x,y,label
+```
+
+```rust
+impl From<Raw> for Point {
+    fn from(raw: Raw) -> Self {
+        Self {
+            x: raw.x,
+            y: raw.y,
+        }
+    }
+}
+```
+
+`label` has no `Raw` counterpart, so it is left for you to fill in; `z` is
+dropped. A composite's `expands` may name the collections through its
+parameters (`convfield:${from}*@${to}?value@${from}`), which is how
+`convert:Raw,Point` becomes that repeat.
+
 ### Defining, then consuming
 
 The `variant`/`field` snippets and the `arm` snippet are mirror images, so the
@@ -469,10 +550,15 @@ literal's written elements — and you name the source (`@Msg`). It does **not**
 infer a variable's type to find its definition, resolve imports, or read other
 files; that is a type-checker's job (rust-analyzer, tsc), not codemmet's.
 
-Rust payload variants are handled minimally: a tuple variant extracts as
-`Msg::Write(..)` and a struct variant as `Msg::Move { .. }`, so a generated
-`match` arm compiles without your having to name each field. The bindings are
-wildcards — replace them if you need the payload.
+A Rust payload variant's *value* is the wildcard pattern — `Msg::Write(..)`,
+`Msg::Move { .. }` — so a generated `match` arm compiles without naming each
+field. To use the payload, reach for the members: `${value.bind}` is a
+pattern that binds every field (`Msg::Write(v)`, `Msg::Move { x, y }` — the
+builtin `armb` arm), `${value.payload}` its types, `${value.args}` the bound
+names, and `*@outer.fields` walks them one by one (see the [member
+vocabulary](#member-vocabulary)). Types are still never *resolved*: a
+`String` payload is the text `String`, and a type map can respell it, not
+inspect it.
 
 ### Implementing an interface
 

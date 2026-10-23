@@ -38,6 +38,31 @@ follows [Semantic Versioning](https://semver.org/).
   for every member). A code action — "Implement missing methods of `Shape`",
   Go "Implement `Shape` for `Sq`" — adds the stubs a type still lacks inside
   its `impl`/class body (after the type declaration in Go).
+- **Type maps.** A snippet pack can declare `[maps.<name>]` lookup tables
+  and apply one like a case transform: `${value.type|native}`. Every pack
+  ships `native` (type spellings from the other supported languages → this
+  language's, with `*` patterns such as `"Vec<*>" = "*[]"` that map their
+  captures recursively) and the Rust, Python, TypeScript and Go packs ship
+  `sql`. The `field` snippets now map through `native`, so
+  `int:Point>field*` with a Rust `--source` writes a TypeScript interface with
+  TypeScript types; new `sqltable` / `sqlcol` triggers write a `CREATE TABLE`
+  from a struct. Maps merge per entry across packs, and `check` rejects a
+  `|name` that is neither a case transform nor a declared map.
+- **Zipping collections by name.** A repeat filter may compare against the
+  enclosing item — `?value=@outer`, `?type=@outer.type` — or test membership
+  in another collection — `?value@Point`, `?!name@Handled` — so nested
+  repeats pair corresponding items instead of crossing them. A composite's
+  `expands` may name the collections through its parameters
+  (`convfield:${from}*@${to}?value@${from}`). New Rust composites use it:
+  `convert:Raw,Point` writes `impl From<Raw> for Point` over the fields both
+  structs share, and `errfrom:AppError` a `From` impl per single-value tuple
+  variant.
+- **Enum payloads.** A Rust variant now carries `kind` (`unit` / `tuple` /
+  `struct`), `payload` (`String`, `i32, String`, `x: i32, y: i32`), `bind`
+  (`Msg::Write(v)`, `Msg::Pair(v0, v1)`, `Msg::Move { x, y }`), `args`,
+  `arity`, an explicit discriminant as `value`, and a `fields`
+  sub-collection (`*@outer.fields`). A plain Go `iota` group numbers its
+  constants as `value`. The new Rust `armb` arm writes `${value.bind}`.
 - **Positional `when` predicates and `${join}`.** `first`, `last` and `i=n`
   select a variant by the copy's place in its repeat (with or without an
   item), and a body starting with `${join}` continues the previous copy's

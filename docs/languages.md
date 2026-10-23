@@ -55,14 +55,17 @@ id `rust` | extensions: `rs` | LSP ids: `rust` | default indent: 4 spaces
 | [`aeq`](examples/rust.md#aeq) | assert_eq! statement |
 | [`afn`](examples/rust.md#afn) | async function definition |
 | [`arm`](examples/rust.md#arm) | match arm |
+| [`armb`](examples/rust.md#armb) | match arm binding the variant's payload (`match:m>armb*`: `Msg::Write(v) =>`) |
 | [`cl`](examples/rust.md#cl) | closure |
 | [`const`](examples/rust.md#const) | const item |
+| [`convert`](examples/rust.md#convert) | impl From<Src> for Dst, copying the fields both structs share (composite: `convert:Raw,Point`) |
 | [`derive`](examples/rust.md#derive) | derive attribute |
 | [`doc`](examples/rust.md#doc) | doc comment line |
 | [`el`](examples/rust.md#el) | else block |
 | [`elif`](examples/rust.md#elif) | else-if block |
 | [`enum`](examples/rust.md#enum) | enum definition |
 | [`epr`](examples/rust.md#epr) | eprintln! to stderr |
+| [`errfrom`](examples/rust.md#errfrom) | impl From<Payload> for an error enum, one per single-field tuple variant (composite: `errfrom:MyError`) |
 | [`fn`](examples/rust.md#fn) | function definition |
 | [`fore`](examples/rust.md#fore) | for-each loop over an iterator |
 | [`fori`](examples/rust.md#fori) | for loop over integer range |
@@ -86,6 +89,8 @@ id `rust` | extensions: `rs` | LSP ids: `rust` | default indent: 4 spaces
 | [`prf`](examples/rust.md#prf) | println! with a format string and arguments |
 | [`ret`](examples/rust.md#ret) | return statement |
 | [`rfn`](examples/rust.md#rfn) | function returning Result |
+| [`sqlcol`](examples/rust.md#sqlcol) | column from a struct field: snake_case name and the `|sql` type (`sqlcol*@Point`) |
+| [`sqltable`](examples/rust.md#sqltable) | CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field |
 | [`struct`](examples/rust.md#struct) | struct definition |
 | [`stub`](examples/rust.md#stub) | method stub from a trait's declaration (stub*@src.Shape.methods writes the required ones; ?all for every member) |
 | [`test`](examples/rust.md#test) | test function |
@@ -135,6 +140,8 @@ id `python` | extensions: `py` | LSP ids: `python` | default indent: 4 spaces
 | [`raise`](examples/python.md#raise) | raise an exception |
 | [`repr`](examples/python.md#repr) | __repr__ dunder method |
 | [`ret`](examples/python.md#ret) | return statement |
+| [`sqlcol`](examples/python.md#sqlcol) | column from a dataclass field: snake_case name and the `|sql` type (`sqlcol*@Point`) |
+| [`sqltable`](examples/python.md#sqltable) | CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field |
 | [`str`](examples/python.md#str) | __str__ dunder method |
 | [`stub`](examples/python.md#stub) | method stub from a Protocol/ABC declaration (stub*@src.Shape.methods writes the required ones; ?all for every member) |
 | [`test`](examples/python.md#test) | test function (pytest style) |
@@ -347,6 +354,8 @@ TypeScript starts from the JavaScript pack. Several triggers such as `afn` and
 | [`prom`](examples/typescript.md#prom) | new Promise with executor |
 | [`ret`](examples/typescript.md#ret) | return statement |
 | [`set`](examples/typescript.md#set) | setter backed by a private-by-convention field |
+| [`sqlcol`](examples/typescript.md#sqlcol) | column from an interface field: snake_case name and the `|sql` type (`sqlcol*@Point`) |
+| [`sqltable`](examples/typescript.md#sqltable) | CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field |
 | [`stub`](examples/typescript.md#stub) | method stub from an interface or abstract declaration (TypeScript: stub*@src.Shape.methods writes the required ones; ?all for every member) |
 | [`switch`](examples/typescript.md#switch) | switch statement |
 | [`test`](examples/typescript.md#test) | test case (jest/vitest style) |
@@ -399,6 +408,8 @@ id `go` | extensions: `go` | LSP ids: `go` | default indent: tab
 | [`prf`](examples/go.md#prf) | fmt.Printf with a format string and arguments |
 | [`ret`](examples/go.md#ret) | return statement |
 | [`sel`](examples/go.md#sel) | select statement (cases at select level, per gofmt) |
+| [`sqlcol`](examples/go.md#sqlcol) | column from a struct field: snake_case name and the `|sql` type (`sqlcol*@Point`) |
+| [`sqltable`](examples/go.md#sqltable) | CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field |
 | [`struct`](examples/go.md#struct) | struct type definition |
 | [`stub`](examples/go.md#stub) | method stub from an interface's declaration (stub*@src.Shape.methods) |
 | [`switch`](examples/go.md#switch) | switch statement (cases at switch level, per gofmt) |

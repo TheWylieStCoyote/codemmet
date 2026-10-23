@@ -37,6 +37,8 @@ mod parser;
 
 pub use parser::parse;
 
+use std::collections::BTreeMap;
+
 use std::ops::Range;
 
 /// Canonical set of operator characters on the abbreviation surface — the
@@ -209,12 +211,22 @@ pub struct Predicate {
 }
 
 /// How a [`Predicate`] compares a member.
+///
+/// The text of `Eq` and `Glob` may be an **outer reference**: `@outer` (the
+/// enclosing data-driven item's value) or `@outer.<member>`, resolved per
+/// item when a repeat nests inside another (`*@B?name=@outer.name` pairs
+/// each `B` field with the same-named `A` field — a zip by name). With no
+/// enclosing item, or when it lacks the member, the predicate fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PredicateOp {
     /// `key=text`: equal to `text`.
     Eq(String),
     /// `key~glob`: matches `glob`, where `*` matches any run of characters.
     Glob(String),
+    /// `key@Name`: some item of the collection `Name` has this member's text
+    /// as its value or `name` member (`field*@B?value@A` keeps the fields of
+    /// `B` that `A` also has).
+    In(String),
 }
 
 impl Predicate {
@@ -239,23 +251,39 @@ impl Predicate {
             "" => None,
             value if value.starts_with('=') => Some(PredicateOp::Eq(value[1..].to_owned())),
             value if value.starts_with('~') => Some(PredicateOp::Glob(value[1..].to_owned())),
+            value if value.starts_with('@') => Some(PredicateOp::In(value[1..].to_owned())),
             other => {
                 return Err(format!(
-                    "filter `{token}`: unexpected `{other}` after `{key}` (expected `=text` or `~glob`)"
+                    "filter `{token}`: unexpected `{other}` after `{key}` \
+                     (expected `=text`, `~glob`, or `@collection`)"
                 ));
             }
         };
-        if let Some(PredicateOp::Eq(v) | PredicateOp::Glob(v)) = &op {
+        if let Some(PredicateOp::Eq(v) | PredicateOp::Glob(v) | PredicateOp::In(v)) = &op {
             if v.is_empty() {
                 return Err(format!(
                     "filter `{token}`: missing a value after the operator"
                 ));
             }
-            if v.starts_with(['=', '~']) {
+            // `=@outer…` is the one legitimate operator-like start.
+            if v.starts_with(['=', '~']) || (v.starts_with('@') && !v.starts_with("@outer")) {
                 return Err(format!(
-                    "filter `{token}`: a value may not start with `=` or `~` (one operator only)"
+                    "filter `{token}`: a value may not start with `=`, `~`, or `@` (one operator only)"
                 ));
             }
+        }
+        if let Some(PredicateOp::In(name)) = &op
+            && !name.split('.').all(|part| {
+                let mut chars = part.chars();
+                chars
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                    && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+            })
+        {
+            return Err(format!(
+                "filter `{token}`: expected a collection name after `@` (as in `?value@Point`)"
+            ));
         }
         Ok(Self {
             negate,
@@ -264,18 +292,49 @@ impl Predicate {
         })
     }
 
-    /// Whether `item` satisfies this predicate.
+    /// Whether `item` satisfies this predicate, with no enclosing item and no
+    /// collections in scope: an `@outer` reference or a `key@Name` test
+    /// fails. See [`Predicate::matches_in`] for the full form.
     #[must_use]
     pub fn matches(&self, item: &crate::context::Item) -> bool {
-        let field: Option<&str> = if self.key == "value" {
-            Some(item.value.as_str())
-        } else {
-            item.members.get(&self.key).map(String::as_str)
+        self.matches_in(item, None, &BTreeMap::new())
+    }
+
+    /// Whether `item` satisfies this predicate, given the enclosing
+    /// data-driven item (`outer`, for `=@outer` / `=@outer.member` values)
+    /// and the collections in scope (for `key@Name`).
+    #[must_use]
+    pub fn matches_in<'a>(
+        &'a self,
+        item: &crate::context::Item,
+        outer: Option<&'a crate::context::Item>,
+        collections: &BTreeMap<String, crate::context::Collection>,
+    ) -> bool {
+        let field: Option<&str> = member_text(item, &self.key);
+        // The text an `Eq`/`Glob` compares against: the literal, or the
+        // enclosing item's member for an `@outer…` reference (`None` when
+        // there is no enclosing item or it lacks the member).
+        let expected = |text: &'a str| -> Option<&'a str> {
+            outer_reference(text).map_or(Some(text), |key| outer.and_then(|o| member_text(o, key)))
         };
         let hit = match &self.op {
             None => field.is_some_and(|f| !f.is_empty()),
-            Some(PredicateOp::Eq(text)) => field == Some(text.as_str()),
-            Some(PredicateOp::Glob(glob)) => field.is_some_and(|f| glob_match(glob, f)),
+            Some(PredicateOp::Eq(text)) => match (field, expected(text)) {
+                (Some(f), Some(want)) => f == want,
+                _ => false,
+            },
+            Some(PredicateOp::Glob(glob)) => match (field, expected(glob)) {
+                (Some(f), Some(pattern)) => glob_match(pattern, f),
+                _ => false,
+            },
+            Some(PredicateOp::In(name)) => field.is_some_and(|f| {
+                collections.get(name).is_some_and(|c| {
+                    c.items.iter().any(|candidate| {
+                        candidate.value == f
+                            || candidate.members.get("name").is_some_and(|n| n == f)
+                    })
+                })
+            }),
         };
         hit != self.negate
     }
@@ -304,11 +363,33 @@ impl Predicate {
                     None => true,
                     Some(PredicateOp::Eq(expected)) => &text == expected,
                     Some(PredicateOp::Glob(glob)) => glob_match(glob, &text),
+                    // The index is never "in" a collection.
+                    Some(PredicateOp::In(_)) => false,
                 }
             }
             _ => return None,
         };
         Some(hit != self.negate)
+    }
+}
+
+/// An item's text for a predicate key: `value` is the item's own text, any
+/// other key a member.
+fn member_text<'i>(item: &'i crate::context::Item, key: &str) -> Option<&'i str> {
+    if key == "value" {
+        Some(item.value.as_str())
+    } else {
+        item.members.get(key).map(String::as_str)
+    }
+}
+
+/// The member key an `@outer` / `@outer.<member>` predicate value refers to
+/// (`value` for the bare form), or `None` for literal text.
+fn outer_reference(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix("@outer")?;
+    match rest {
+        "" => Some("value"),
+        _ => rest.strip_prefix('.').filter(|k| !k.is_empty()),
     }
 }
 

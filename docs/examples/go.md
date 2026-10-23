@@ -874,6 +874,62 @@ default:
 
 `sel` opens a `select` block. Nested `case` and `default` clauses sit at the select's own level, not indented further, matching gofmt.
 
+### `sqlcol`
+
+Column from a struct field: snake_case name and the `|sql` type.
+
+```sh
+codemmet expand --lang go "sqlcol"
+```
+
+```go
+column TEXT
+```
+
+Given a source file `point.go`:
+
+```go
+package geo
+
+type Point struct {
+	X     float64
+	Count int64
+	Label string
+	Raw   []byte
+}
+```
+
+```sh
+codemmet expand --lang go --source point.go "sqltable:Point>sqlcol*"
+```
+
+```go
+CREATE TABLE point (
+	x REAL,
+	count INTEGER,
+	label TEXT,
+	raw BLOB
+);
+```
+
+`${value.type|sql}` maps each field's declared type through the pack's `[maps.sql]` table (integers to `INTEGER`, floats to `REAL`, `bool` to `BOOLEAN`, `string` to `TEXT`, `[]byte` to `BLOB`); anything else becomes `TEXT`. The last column drops its comma.
+
+### `sqltable`
+
+CREATE TABLE statement.
+
+```sh
+codemmet expand --lang go "sqltable:Point"
+```
+
+```go
+CREATE TABLE point (
+	
+);
+```
+
+The argument is snake_cased for the table name; nest `sqlcol*` (or `sqlcol*@Point`) to write a column per field — see [`sqlcol`](#sqlcol).
+
 ### `struct`
 
 Struct type definition.
@@ -899,6 +955,22 @@ type Server struct {
 ```
 
 `struct:Server` names the type via a glued argument and leaves the body open for fields. Nest a `doc` comment or fields with `>`.
+
+Given a `point.rs` with `pub x: f64, pub tags: Vec<String>, pub count: u32`:
+
+```sh
+codemmet expand --lang go --source point.rs "struct:Point>field*"
+```
+
+```go
+type Point struct {
+	x float64
+	tags []string
+	count uint32
+}
+```
+
+`field*` copies the struct's fields, and its body writes `${value.type|native}`: a type spelled in another language is mapped to Go's through the pack's `[maps.native]` table, while a Go type passes through unchanged. Field names keep the source spelling; add `|pascal` in your own snippet to export them.
 
 ### `stub`
 

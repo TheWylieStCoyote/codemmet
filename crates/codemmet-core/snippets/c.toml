@@ -286,9 +286,10 @@ body = '''
 description = "struct field definition"
 # `${value}` / `${value.type}` bind to a data-driven repeat item: a struct's
 # fields fill `field*@Point` (declared type + name). With no data both fall
-# back to tabstops. Inherited by C++.
+# back to tabstops. Inherited by C++. `|native` maps a foreign type spelling
+# (a Rust or Go `--source`) to C's; a C type passes through.
 body = '''
-${value.type:Type} ${value:name};
+${value.type|native:Type} ${value:name};
 '''
 
 [snippets.hstruct]
@@ -354,3 +355,48 @@ on_exists = "append"
 on_create = '#include "${src.module}"'
 primary = true
 expands = "tfn*@src.fns"
+
+# `|native`: a C spelling for a type written in another language — how
+# `struct:Point>field*` mirrors a Rust or Go struct given `--source`. Fixed-
+# width types need <stdint.h>. Keys are foreign spellings only (C's own
+# `int`, `float`, `double`, `char` are not keys and pass through); C++ adds
+# the standard-library containers in its own pack.
+[maps.native]
+i8 = "int8_t"
+i16 = "int16_t"
+i32 = "int32_t"
+i64 = "int64_t"
+isize = "ptrdiff_t"
+u8 = "uint8_t"
+u16 = "uint16_t"
+u32 = "uint32_t"
+u64 = "uint64_t"
+usize = "size_t"
+f32 = "float"
+f64 = "double"
+String = "const char*"
+str = "const char*"
+"&str" = "const char*"
+"()" = "void"
+int = "long"
+bytes = "const unsigned char*"
+None = "void"
+number = "double"
+string = "const char*"
+boolean = "bool"
+bigint = "int64_t"
+Uint8Array = "const uint8_t*"
+int8 = "int8_t"
+int16 = "int16_t"
+int32 = "int32_t"
+int64 = "int64_t"
+uint = "unsigned"
+uint8 = "uint8_t"
+byte = "uint8_t"
+uint16 = "uint16_t"
+uint32 = "uint32_t"
+uint64 = "uint64_t"
+float32 = "float"
+float64 = "double"
+rune = "int32_t"
+"[]byte" = "const uint8_t*"

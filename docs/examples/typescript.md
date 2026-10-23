@@ -711,6 +711,22 @@ interface User {
 
 Opens an interface body. Without an argument the name is a placeholder tabstop (`Name`); a glued argument such as `User` names it directly. List the members at the inner tabstop.
 
+Given a `point.rs` with `pub x: f64, pub tags: Vec<String>, pub label: Option<String>`:
+
+```sh
+codemmet expand --lang typescript --source point.rs "int:Point>field*"
+```
+
+```typescript
+interface Point {
+  x: number;
+  tags: string[];
+  label: string | null;
+}
+```
+
+`field*` copies the struct's fields, and its body writes `${value.type|native}`: a type spelled in another language is mapped to TypeScript's through the pack's `[maps.native]` table (`Vec<String>` to `string[]`, `Option<String>` to `string | null`), while a TypeScript type passes through unchanged.
+
 ### `jsonp`
 
 A JSON.parse expression.
@@ -834,6 +850,60 @@ class User {
 ```
 
 The glued argument names the property; the body assigns to the matching `this._name` field. Nested inside a class it becomes an accessor member.
+
+### `sqlcol`
+
+Column from a interface field: snake_case name and the `|sql` type.
+
+```sh
+codemmet expand --lang typescript "sqlcol"
+```
+
+```typescript
+column TEXT
+```
+
+Given a source file `point.ts`:
+
+```typescript
+interface Point {
+  x: number;
+  count: bigint;
+  label: string | null;
+  raw: Uint8Array;
+}
+```
+
+```sh
+codemmet expand --lang typescript --source point.ts "sqltable:Point>sqlcol*"
+```
+
+```typescript
+CREATE TABLE point (
+  x REAL,
+  count INTEGER,
+  label TEXT,
+  raw BLOB
+);
+```
+
+`${value.type|sql}` maps each field's declared type through the pack's `[maps.sql]` table (`number` to `REAL`, `bigint` to `INTEGER`, `boolean` to `BOOLEAN`, `string` to `TEXT`, `Uint8Array` to `BLOB`, a `| null` union to its inner type); anything else becomes `TEXT`. The last column drops its comma.
+
+### `sqltable`
+
+CREATE TABLE statement.
+
+```sh
+codemmet expand --lang typescript "sqltable:Point"
+```
+
+```typescript
+CREATE TABLE point (
+  
+);
+```
+
+The argument is snake_cased for the table name; nest `sqlcol*` (or `sqlcol*@Point`) to write a column per field — see [`sqlcol`](#sqlcol).
 
 ### `stub`
 

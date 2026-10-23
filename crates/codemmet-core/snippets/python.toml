@@ -336,9 +336,10 @@ body = '''
 description = "annotated attribute (dataclass field)"
 # `${value}` / `${value.type}` bind to a data-driven repeat item: a
 # dataclass's annotated attributes fill `field*@Point` (name + type). With no
-# data both fall back to tabstops.
+# data both fall back to tabstops. `|native` maps a foreign type spelling (a
+# Rust or TypeScript `--source`) to Python's; a Python type passes through.
 body = '''
-${value:name}: ${value.type:type}
+${value:name}: ${value.type|native:type}
 '''
 
 [snippets.ctxmgr]
@@ -462,3 +463,125 @@ body = '''
 ${value.decl:def name(self)}:
 	${child}
 '''
+
+[snippets.sqltable]
+description = "CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field"
+params = [{ name = "name", kind = "ident", default = "Table" }]
+body = '''
+CREATE TABLE ${name|snake} (
+	${child}
+);
+'''
+
+[snippets.sqlcol]
+description = "column from a dataclass field: snake_case name and the `|sql` type (`sqlcol*@Point`)"
+body = '''
+${value|snake:column} ${value.type|sql:TEXT},
+'''
+
+[[snippets.sqlcol.variants]]
+when = "last"
+body = '''
+${value|snake:column} ${value.type|sql:TEXT}
+'''
+
+# `|native`: a Python spelling for a type written in another language — how
+# `dc:Point>field*` mirrors a Rust struct or TypeScript interface given
+# `--source`. Keys are foreign spellings only; a Python type passes through.
+[maps.native]
+i8 = "int"
+i16 = "int"
+i32 = "int"
+i64 = "int"
+i128 = "int"
+isize = "int"
+u8 = "int"
+u16 = "int"
+u32 = "int"
+u64 = "int"
+u128 = "int"
+usize = "int"
+f32 = "float"
+f64 = "float"
+String = "str"
+"&str" = "str"
+char = "str"
+"()" = "None"
+"Vec<u8>" = "bytes"
+"Vec<*>" = "list[*]"
+"HashSet<*>" = "set[*]"
+"BTreeSet<*>" = "set[*]"
+"HashMap<*, *>" = "dict[*, *]"
+"BTreeMap<*, *>" = "dict[*, *]"
+"Option<*>" = "* | None"
+"Box<*>" = "*"
+number = "float"
+string = "str"
+boolean = "bool"
+bigint = "int"
+void = "None"
+null = "None"
+Uint8Array = "bytes"
+"*[]" = "list[*]"
+"Array<*>" = "list[*]"
+"Record<string, *>" = "dict[str, *]"
+"Map<*, *>" = "dict[*, *]"
+"Set<*>" = "set[*]"
+"* | null" = "* | None"
+"* | undefined" = "* | None"
+int8 = "int"
+int16 = "int"
+int32 = "int"
+int64 = "int"
+uint = "int"
+uint8 = "int"
+byte = "int"
+uint16 = "int"
+uint32 = "int"
+uint64 = "int"
+float32 = "float"
+float64 = "float"
+rune = "str"
+error = "Exception"
+"[]byte" = "bytes"
+"[]*" = "list[*]"
+"map[*]*" = "dict[*, *]"
+long = "int"
+short = "int"
+unsigned = "int"
+"unsigned int" = "int"
+"unsigned long" = "int"
+"unsigned char" = "int"
+double = "float"
+size_t = "int"
+ptrdiff_t = "int"
+int8_t = "int"
+int16_t = "int"
+int32_t = "int"
+int64_t = "int"
+uint8_t = "int"
+uint16_t = "int"
+uint32_t = "int"
+uint64_t = "int"
+"char*" = "str"
+"const char*" = "str"
+"std::string" = "str"
+"std::vector<*>" = "list[*]"
+"std::optional<*>" = "* | None"
+"std::unordered_map<*, *>" = "dict[*, *]"
+"std::map<*, *>" = "dict[*, *]"
+"std::set<*>" = "set[*]"
+
+# `|sql`: a column type for a field's declared type — what `sqlcol` writes.
+# Integers become INTEGER, floats REAL, booleans BOOLEAN, text TEXT, byte
+# strings BLOB; an optional wrapper is unwrapped (nullability is the column's
+# business); anything else falls back to TEXT via the `*` catch-all.
+[maps.sql]
+int = "INTEGER"
+float = "REAL"
+bool = "BOOLEAN"
+str = "TEXT"
+bytes = "BLOB"
+"Optional[*]" = "*"
+"* | None" = "*"
+"*" = "TEXT"

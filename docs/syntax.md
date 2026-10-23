@@ -162,14 +162,19 @@ of predicates written right after it, no spaces:
 | `?key=text` | member `key` equals `text` |
 | `?key~glob` | member `key` matches `glob` (`*` matches any run of characters) |
 | `?value~glob` / `?value=text` | the item's own text matches |
+| `?key=@outer` / `?key=@outer.member` | member `key` equals the **enclosing** repeat's item (its value, or a member) — a zip by name instead of a cross product; fails with no enclosing item |
+| `?key@Name` | the collection `Name` has an item whose value or `name` member equals member `key` (`?value@Point`: the items `Point` also has; `?!value@Point`: the ones it lacks) |
 | `?first` / `?last` | it is the first / last item left after the member predicates |
 | `?i=n` / `?i~glob` | its 1-based position (after the member predicates) is `n` / matches `glob` |
 | `?all` | clear the snippet's default filter (see below), keep everything |
 
 A repeat source may also be a **sub-collection of the enclosing item**,
 written `*@outer.<key>`: inside `tfn*@src.fns`, `let*@outer.params` repeats
-over the current function's parameters (see [source
+over the current function's parameters, and inside `armb*@Msg`,
+`let*@outer.fields` over the variant's payload fields (see [source
 collections](context-codegen.md#source-collections-functions-types-and-methods)).
+The `@outer` and `@Name` forms pair collections up — see [zipping by
+name](context-codegen.md#zipping-by-name).
 
 Predicates AND together — `tfn*@src.fns?vis=public?!async` keeps the public,
 non-async functions. A filter only ever narrows: filtering a collection down
@@ -305,7 +310,7 @@ always safe to type.
 > name the source (`@Msg`). `value` and `outer` are reserved parameter names
 > because of `${value}` / `${outer}`.
 
-#### Case transforms: `${value|snake}`
+#### Transforms: `${value|snake}`, `${value.type|native}`
 
 Collections carry their *source* spelling, but each target position wants its
 own convention — repeating `fn` over `maxSize, minSize` should write
@@ -339,13 +344,22 @@ Word boundaries are detected from camelCase transitions, acronym runs
 existing `_`/`-` separators; a run of leading underscores is preserved
 (`_maxSize` → `_max_size`).
 
+Any other `|name` is a **map**: a lookup table the snippet pack declares as
+`[maps.<name>]`, which replaces the text with the matching entry and passes
+unknown text through. Every pack ships `native` (another language's type
+spellings → this language's: `${value.type|native}` turns a Rust `Vec<String>`
+into a TypeScript `string[]`) and the Rust, Python, TypeScript and Go packs
+ship `sql` (field types → column types). See [type
+maps](context-codegen.md#type-maps-valuetypenative).
+
 The transform sits **after** the member and **before** the default —
 `${value.type|pascal:Kind}` — so a `|` inside a `:default` is plain text, as
-before. Transforms re-case **data only**: the item or its member. A caller's
+before. Transforms rewrite **data only**: the item or its member. A caller's
 `:default` renders verbatim, and with no collection the reference degrades to
 the usual tabstop. An unknown or chained transform name is an error listing
-the valid names. One transform per reference; snippet *bodies* can also
-transform declared parameters — see [custom snippets](snippets.md).
+the valid names (case transforms, then the pack's maps). One transform per
+reference; snippet *bodies* can also transform declared parameters — see
+[custom snippets](snippets.md).
 
 > Like `${value}` itself, single-quote abbreviations that use `|transforms` on
 > a shell command line so `${…}` survives, and note `|` is a shell pipe

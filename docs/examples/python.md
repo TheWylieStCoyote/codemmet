@@ -207,6 +207,21 @@ class Point:
 
 The `>` child operator nests members, and the `+` sibling operator joins the `__init__` and `__str__` dunders.
 
+Given a `point.rs` with `pub x: f64, pub tags: Vec<String>, pub label: Option<String>`:
+
+```sh
+codemmet expand --lang python --source point.rs "class:Point>field*"
+```
+
+```python
+class Point:
+    x: float
+    tags: list[str]
+    label: str | None
+```
+
+`field*` copies the struct's fields, and its body writes `${value.type|native}`: a type spelled in another language is mapped to Python's through the pack's `[maps.native]` table, while a Python annotation passes through unchanged.
+
 ### `dc`
 
 Dict comprehension.
@@ -756,6 +771,62 @@ return
 ```
 
 Emits a `return ` with a tabstop for the value.
+
+### `sqlcol`
+
+Column from a dataclass field: snake_case name and the `|sql` type.
+
+```sh
+codemmet expand --lang python "sqlcol"
+```
+
+```python
+column TEXT
+```
+
+Given a source file `point.py`:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: float
+    count: int
+    label: str | None = None
+    raw: bytes = b""
+```
+
+```sh
+codemmet expand --lang python --source point.py "sqltable:Point>sqlcol*"
+```
+
+```python
+CREATE TABLE point (
+    x REAL,
+    count INTEGER,
+    label TEXT,
+    raw BLOB
+);
+```
+
+`${value.type|sql}` maps each field's declared type through the pack's `[maps.sql]` table (`int` to `INTEGER`, `float` to `REAL`, `bool` to `BOOLEAN`, `str` to `TEXT`, `bytes` to `BLOB`, an optional to its inner type); anything else becomes `TEXT`. The last column drops its comma.
+
+### `sqltable`
+
+CREATE TABLE statement.
+
+```sh
+codemmet expand --lang python "sqltable:Point"
+```
+
+```python
+CREATE TABLE point (
+    
+);
+```
+
+The argument is snake_cased for the table name; nest `sqlcol*` (or `sqlcol*@Point`) to write a column per field — see [`sqlcol`](#sqlcol).
 
 ### `str`
 

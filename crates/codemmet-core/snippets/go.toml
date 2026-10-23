@@ -363,9 +363,10 @@ body = '''
 description = "struct field definition"
 # `${value}` / `${value.type}` bind to a data-driven repeat item: a struct's
 # fields fill `field*@Point` (name + declared type). With no data both fall
-# back to tabstops.
+# back to tabstops. `|native` maps a foreign type spelling (a Rust or Python
+# `--source`) to Go's; a Go type passes through.
 body = '''
-${value:Name} ${value.type:Type}
+${value:Name} ${value.type|native:Type}
 '''
 
 [snippets.stringer]
@@ -455,3 +456,117 @@ func (${1:r} ${2:*Type}) ${value.decl:Name()} {
 	${child}
 }
 '''
+
+[snippets.sqltable]
+description = "CREATE TABLE statement; `sqltable:Point>sqlcol*` writes a column per field"
+params = [{ name = "name", kind = "ident", default = "Table" }]
+body = '''
+CREATE TABLE ${name|snake} (
+	${child}
+);
+'''
+
+[snippets.sqlcol]
+description = "column from a struct field: snake_case name and the `|sql` type (`sqlcol*@Point`)"
+body = '''
+${value|snake:column} ${value.type|sql:TEXT},
+'''
+
+[[snippets.sqlcol.variants]]
+when = "last"
+body = '''
+${value|snake:column} ${value.type|sql:TEXT}
+'''
+
+# `|native`: a Go spelling for a type written in another language — how
+# `struct:Point>field*` mirrors a Rust struct or Python dataclass given
+# `--source`. Keys are foreign spellings only; a Go type passes through
+# (`int` and `string` are both, and map to themselves).
+[maps.native]
+i8 = "int8"
+i16 = "int16"
+i32 = "int32"
+i64 = "int64"
+isize = "int"
+u8 = "uint8"
+u16 = "uint16"
+u32 = "uint32"
+u64 = "uint64"
+usize = "uint"
+f32 = "float32"
+f64 = "float64"
+String = "string"
+str = "string"
+"&str" = "string"
+char = "rune"
+"Vec<*>" = "[]*"
+"HashSet<*>" = "map[*]struct{}"
+"HashMap<*, *>" = "map[*]*"
+"BTreeMap<*, *>" = "map[*]*"
+"Option<*>" = "*"
+"Box<*>" = "*"
+float = "float64"
+bytes = "[]byte"
+"list[*]" = "[]*"
+"set[*]" = "map[*]struct{}"
+"dict[*, *]" = "map[*]*"
+"Optional[*]" = "*"
+"* | None" = "*"
+number = "float64"
+boolean = "bool"
+bigint = "int64"
+Uint8Array = "[]byte"
+"*[]" = "[]*"
+"Array<*>" = "[]*"
+"Record<string, *>" = "map[string]*"
+"Map<*, *>" = "map[*]*"
+"Set<*>" = "map[*]struct{}"
+"* | null" = "*"
+"* | undefined" = "*"
+long = "int64"
+short = "int16"
+unsigned = "uint"
+"unsigned int" = "uint32"
+"unsigned long" = "uint64"
+"unsigned char" = "uint8"
+double = "float64"
+size_t = "uint"
+int8_t = "int8"
+int16_t = "int16"
+int32_t = "int32"
+int64_t = "int64"
+uint8_t = "uint8"
+uint16_t = "uint16"
+uint32_t = "uint32"
+uint64_t = "uint64"
+"char*" = "string"
+"const char*" = "string"
+"std::string" = "string"
+"std::vector<*>" = "[]*"
+"std::optional<*>" = "*"
+"std::unordered_map<*, *>" = "map[*]*"
+"std::map<*, *>" = "map[*]*"
+
+# `|sql`: a column type for a field's declared type — what `sqlcol` writes.
+# Integers become INTEGER, floats REAL, booleans BOOLEAN, text TEXT, byte
+# strings BLOB; an optional wrapper is unwrapped (nullability is the column's
+# business); anything else falls back to TEXT via the `*` catch-all.
+[maps.sql]
+int = "INTEGER"
+int8 = "INTEGER"
+int16 = "INTEGER"
+int32 = "INTEGER"
+int64 = "INTEGER"
+uint = "INTEGER"
+uint8 = "INTEGER"
+uint16 = "INTEGER"
+uint32 = "INTEGER"
+uint64 = "INTEGER"
+byte = "INTEGER"
+float32 = "REAL"
+float64 = "REAL"
+bool = "BOOLEAN"
+string = "TEXT"
+rune = "TEXT"
+"[]byte" = "BLOB"
+"*" = "TEXT"
