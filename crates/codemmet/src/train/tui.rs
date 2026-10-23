@@ -198,6 +198,9 @@ fn render_answering(frame: &mut Frame, area: Rect, trainer: &Trainer) {
     if let Some(exercise) = trainer.exercise() {
         prompt_lines(exercise, &mut lines);
     }
+    if trainer.shows_workspace() {
+        workspace_lines(trainer, &mut lines);
+    }
     if let Some(message) = trainer.message() {
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled(
@@ -365,6 +368,7 @@ fn render_sandbox(frame: &mut Frame, area: Rect, trainer: &Trainer) {
     }
     if lines.is_empty() {
         lines.push(Line::from("Type an abbreviation and press Enter to expand it.").dim());
+        workspace_lines(trainer, &mut lines);
     }
     frame.render_widget(
         Paragraph::new(Text::from(lines))
@@ -389,6 +393,15 @@ fn render_sandbox(frame: &mut Frame, area: Rect, trainer: &Trainer) {
             .wrap(Wrap { trim: false }),
         preview,
     );
+}
+
+/// Push the workspace — the named collections a `*@Name` can repeat over.
+fn workspace_lines(trainer: &Trainer, lines: &mut Vec<Line<'static>>) {
+    lines.push(Line::raw(""));
+    lines.push(Line::from("Collections in scope:").dim());
+    for entry in trainer.workspace_lines() {
+        lines.push(Line::styled(format!("  {entry}"), Style::new().magenta()));
+    }
 }
 
 /// Push an exercise's prompt (and choices, for multiple choice) as lines.

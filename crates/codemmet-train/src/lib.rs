@@ -16,3 +16,4 @@ pub mod lessons;
 pub mod review;
 pub mod rng;
 pub mod trainer;
+pub mod workspace;

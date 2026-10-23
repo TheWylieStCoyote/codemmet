@@ -312,6 +312,9 @@ struct Snapshot {
     preview: Option<String>,
     feedback: Option<FeedbackView>,
     sandbox: Vec<SandboxEntry>,
+    /// The workspace collections to list (a collections exercise or the
+    /// sandbox), one display line each; empty when the screen omits them.
+    workspace: Vec<String>,
     stats: StatsView,
     due: usize,
 }
@@ -394,6 +397,11 @@ fn snapshot(trainer: &Trainer) -> Snapshot {
                 output: output.clone(),
             })
             .collect(),
+        workspace: if trainer.shows_workspace() {
+            trainer.workspace_lines()
+        } else {
+            Vec::new()
+        },
         stats: StatsView {
             presented: stats.presented,
             solved: stats.solved,

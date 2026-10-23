@@ -86,6 +86,7 @@ fn dispatch<W: Write>(trainer: &mut Trainer, line: &str, out: &mut W) -> std::io
 /// The prompt, any revealed hints, a transient note, and the live preview.
 fn answering_screen<W: Write>(trainer: &Trainer, out: &mut W) -> std::io::Result<()> {
     prompt(trainer, out)?;
+    workspace(trainer, out)?;
     for hint in trainer.revealed_hints() {
         writeln!(out, "  hint: {hint}")?;
     }
@@ -136,11 +137,26 @@ fn prompt<W: Write>(trainer: &Trainer, out: &mut W) -> std::io::Result<()> {
     }
 }
 
+/// The workspace collections, when the screen should show them (a
+/// collections exercise, or the sandbox before its first expansion).
+fn workspace<W: Write>(trainer: &Trainer, out: &mut W) -> std::io::Result<()> {
+    if !trainer.shows_workspace() {
+        return Ok(());
+    }
+    writeln!(out, "  collections in scope:")?;
+    for entry in trainer.workspace_lines() {
+        writeln!(out, "    {entry}")?;
+    }
+    Ok(())
+}
+
 /// The sandbox: the most recent expansion, then any note.
 fn sandbox_screen<W: Write>(trainer: &Trainer, out: &mut W) -> std::io::Result<()> {
     if let Some((abbr, expansion)) = trainer.sandbox_log().last() {
         writeln!(out, "  `{abbr}` ⟶")?;
         indented(expansion, out)?;
+    } else {
+        workspace(trainer, out)?;
     }
     if let Some(message) = trainer.message() {
         writeln!(out, "  {message}")?;

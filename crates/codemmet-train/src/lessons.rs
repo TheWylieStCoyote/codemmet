@@ -6,7 +6,8 @@
 //! keyed by canonical language id (the trainer normalizes aliases before
 //! looking up). Every abbreviation here is rendered through the real engine
 //! (and a test asserts each one renders), so curated content can never drift
-//! from actual behavior.
+//! from actual behavior. The collections level repeats over the trainer's
+//! [workspace](super::workspace), which every session seeds into its context.
 
 use super::exercise::Level;
 
@@ -60,6 +61,22 @@ const fn rust(level: Level) -> &'static [&'static str] {
             "enum:Color>variant*[Red,Green,Blue]",
             "mod*[parser,lexer]>mtest*[empty,unicode]",
         ],
+        Level::Members => &[
+            "struct:Point>field*[x:f64,count:u32]",
+            "struct:Point>field*[x:float,name:str]",
+            "sqltable:Point>sqlcol*[x:f64,count:u32,label:String]",
+            "impl:Api>fn:${value|snake}*[maxSize,HTTPError]",
+        ],
+        Level::Collections => &[
+            "match:m>arm*@Msg",
+            "match:m>armb*@Msg",
+            "struct:Copy>field*@Point",
+            "match:m>arm*@Msg?!name@Handled",
+            "convert:Raw,Point",
+            "errfrom:AppError",
+            "tfn*@src.fns",
+            "stub*@src.Shape.methods",
+        ],
     }
 }
 
@@ -78,6 +95,19 @@ const fn python(level: Level) -> &'static [&'static str] {
             "class:P>field*[x,y]",
             "match:cmd>arm*[Quit,Move]",
         ],
+        Level::Members => &[
+            "class:Point>field*[x:float,count:int]",
+            "class:Point>field*[x:f64,name:String]",
+            "sqltable:Point>sqlcol*[x:float,count:int]",
+            "class:Api>def:${value|snake}*[maxSize,HTTPError]",
+        ],
+        Level::Collections => &[
+            "match:cmd>arm*@Msg",
+            "class:Copy>field*@Point",
+            "ifchain:cmd*@Msg?!name@Handled",
+            "tfn*@src.fns",
+            "stub*@src.Shape.methods",
+        ],
     }
 }
 
@@ -95,6 +125,17 @@ const fn c(level: Level) -> &'static [&'static str] {
             "struct:P>field*[x:int,y:int]",
             "enum:Color>variant*[Red,Green]",
             "switch:cmd>case*[A,B]",
+        ],
+        Level::Members => &[
+            "struct:Point>field*[x:double,count:int]",
+            "struct:Point>field*[x:f64,name:String]",
+            "fn:${value|snake}*[maxSize,minSize]",
+        ],
+        Level::Collections => &[
+            "switch:cmd>case*@Msg",
+            "struct:Copy>field*@Point",
+            "ifchain:cmd*@Msg?!value@Handled",
+            "tfn*@src.fns",
         ],
     }
 }
@@ -119,6 +160,17 @@ const fn cpp(level: Level) -> &'static [&'static str] {
             "enum:Mode>variant*[On,Off]",
             "switch:cmd>case*[A,B]",
         ],
+        Level::Members => &[
+            "struct:Point>field*[x:double,count:int]",
+            "struct:Point>field*[x:f64,name:String]",
+            "class:Api>fn:${value|snake}*[maxSize,HTTPError]",
+        ],
+        Level::Collections => &[
+            "switch:cmd>case*@Msg",
+            "struct:Copy>field*@Point",
+            "ifchain:cmd*@Msg?!name@Handled",
+            "stub*@src.Shape.methods",
+        ],
     }
 }
 
@@ -138,6 +190,16 @@ const fn javascript(level: Level) -> &'static [&'static str] {
         Level::Grouping => &["(fn:main>pr)+fn:helper", "(fori:i,10>pr)+ret"],
         Level::Composite => &["classc:Widget"],
         Level::DataDriven => &["switch:cmd>case*[A,B]", "class:S>fn*[area,perim]"],
+        Level::Members => &[
+            "class:Api>fn:${value|camel}*[max_size,http_error]",
+            "class:Api>fn:${value|snake}*[maxSize,HTTPError]",
+        ],
+        Level::Collections => &[
+            "switch:cmd>case*@Msg",
+            "ifchain:cmd*@Msg?!value@Handled",
+            "stub*@src.Shape.methods",
+            "tfn*@src.fns",
+        ],
     }
 }
 
@@ -161,6 +223,19 @@ const fn typescript(level: Level) -> &'static [&'static str] {
             "enum:Color>variant*[Red,Green]",
             "switch:cmd>case*[A,B]",
         ],
+        Level::Members => &[
+            "int:Point>field*[x:number,count:number]",
+            "int:Point>field*[x:f64,name:String]",
+            "sqltable:Point>sqlcol*[x:number,label:string]",
+            "class:Api>fn:${value|camel}*[max_size,http_error]",
+        ],
+        Level::Collections => &[
+            "switch:cmd>case*@Msg",
+            "int:Copy>field*@Point",
+            "ifchain:cmd*@Msg?!name@Handled",
+            "stub*@src.Shape.methods",
+            "tfn*@src.fns",
+        ],
     }
 }
 
@@ -175,6 +250,19 @@ const fn go(level: Level) -> &'static [&'static str] {
         Level::Grouping => &["(fn:main>pr)+fn:helper", "(fori:i,10>pr)+ret"],
         Level::Composite => &["stringer:Point", "errtype:ParseError", "maincmd"],
         Level::DataDriven => &["struct:P>field*[X:int,Y:int]", "switch:cmd>case*[A,B]"],
+        Level::Members => &[
+            "struct:Point>field*[X:float64,Count:int]",
+            "struct:Point>field*[X:f64,Name:String]",
+            "sqltable:Point>sqlcol*[X:float64,Count:int64]",
+            "struct:Api>fn:${value|pascal}*[max_size,http_error]",
+        ],
+        Level::Collections => &[
+            "switch:cmd>case*@Msg",
+            "struct:Copy>field*@Point",
+            "ifchain:cmd*@Msg?!value@Handled",
+            "stub*@src.Shape.methods",
+            "tfn*@src.fns",
+        ],
     }
 }
 
@@ -189,8 +277,9 @@ mod tests {
     #[test]
     fn every_curated_abbreviation_renders() {
         let engine = Engine::with_registry(Registry::with_builtins().expect("builtins"));
-        let ctx = ExpansionContext::plain(String::new(), IndentUnit::Spaces(4));
         for language in CURATED_LANGUAGES {
+            let mut ctx = ExpansionContext::plain(String::new(), IndentUnit::Spaces(4));
+            ctx.collections = crate::workspace::collections(language);
             for level in Level::ALL {
                 let set = curated(language, level);
                 assert!(

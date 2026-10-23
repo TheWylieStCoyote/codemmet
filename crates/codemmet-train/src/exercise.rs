@@ -6,9 +6,11 @@
 //! engine. Because the target is produced by the engine, a generated exercise
 //! can never disagree with actual expansion behavior.
 
+use std::collections::BTreeMap;
+
 use codemmet_core::config::loader::{CompiledSnippet, SnippetSet};
 use codemmet_core::config::schema::ParamKind;
-use codemmet_core::context::ExpansionContext;
+use codemmet_core::context::{Collection, ExpansionContext};
 use codemmet_core::engine::Engine;
 use codemmet_core::snippet::ir::Span;
 use codemmet_core::snippet::render::TabstopMode;
@@ -52,11 +54,19 @@ pub enum Level {
     /// Data-driven repeats from an inline collection literal
     /// (`struct:P>field*[x:i32,y:f64]`, `impl:Point>fn*[new,len]`).
     DataDriven,
+    /// Item members and transforms: `${value.type}` through a body,
+    /// `|snake` re-casing, `|native` / `|sql` type maps
+    /// (`struct:P>field*[x:float,name:str]`, `fn:${value|snake}*[maxSize]`).
+    Members,
+    /// Named collections from the workspace: `*@Name`, `?filters`, zips by
+    /// name, and payload members (`match:m>arm*@Msg?!name@Handled`,
+    /// `convert:Raw,Point`, `stub*@src.Shape.methods`).
+    Collections,
 }
 
 impl Level {
     /// Every level, in teaching order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 11] = [
         Self::SingleTrigger,
         Self::Arguments,
         Self::Nesting,
@@ -66,6 +76,8 @@ impl Level {
         Self::Grouping,
         Self::Composite,
         Self::DataDriven,
+        Self::Members,
+        Self::Collections,
     ];
 
     /// The 1-based level number.
@@ -81,6 +93,8 @@ impl Level {
             Self::Grouping => 7,
             Self::Composite => 8,
             Self::DataDriven => 9,
+            Self::Members => 10,
+            Self::Collections => 11,
         }
     }
 
@@ -97,6 +111,8 @@ impl Level {
             7 => Some(Self::Grouping),
             8 => Some(Self::Composite),
             9 => Some(Self::DataDriven),
+            10 => Some(Self::Members),
+            11 => Some(Self::Collections),
             _ => None,
         }
     }
@@ -114,6 +130,8 @@ impl Level {
             Self::Grouping => "grouping ( )",
             Self::Composite => "composites",
             Self::DataDriven => "data-driven (*[…])",
+            Self::Members => "members & transforms (${value.type}, |snake)",
+            Self::Collections => "collections (*@Name, ?filter)",
         }
     }
 
@@ -160,6 +178,22 @@ impl Level {
                  fields, `fn*[new,len]` names each method. `${outer}` reaches the\n\
                  enclosing repeat's item when they nest."
             }
+            Self::Members => {
+                "An item can carry members: `*[x:f64,count:u32]` gives each item a\n\
+                 `type`, which a body reads as `${value.type}` (`field`, `sqlcol`).\n\
+                 A `|transform` rewrites the item where it is used: `|snake`, `|pascal`\n\
+                 re-case it (`fn:${value|snake}*[maxSize]`), while a map like `|native`\n\
+                 or `|sql` looks it up — `field` turns a Python `float` into `f64`,\n\
+                 `sqlcol` turns `u32` into `INTEGER`."
+            }
+            Self::Collections => {
+                "`*@Name` repeats over a named collection — here the workspace listed\n\
+                 on screen, in an editor the enums and structs of your file. `?key=v`,\n\
+                 `?!key`, `?first` narrow it; `?!name@Handled` keeps the items another\n\
+                 collection lacks; `?value=@outer` pairs nested repeats by name.\n\
+                 Variants carry their payload (`armb` binds it), `src.fns` the API,\n\
+                 and `src.Shape.methods` an interface's members (`stub` implements them)."
+            }
         }
     }
 }
@@ -204,6 +238,10 @@ impl Concept {
             Self::Operator('^') => Level::ClimbUp,
             // `[` is the inline collection literal `*[…]` of a data-driven repeat.
             Self::Operator('[') => Level::DataDriven,
+            // `.` is a member reference, `|` a transform.
+            Self::Operator('.' | '|') => Level::Members,
+            // `@` names a collection, `?` filters it.
+            Self::Operator('@' | '?') => Level::Collections,
             Self::Operator(_) => Level::Grouping,
         }
     }
@@ -252,6 +290,12 @@ struct Vocab<'a> {
     /// [`Level::Composite`], so they stay out of the operator levels where a
     /// whole scaffold would swamp the concept being taught.
     composites: Vec<&'a CompiledSnippet>,
+    /// Leaves whose body reads the repeat item (`${value…}`) *without* a
+    /// member — arms, cases, variants: they consume an enum-like collection.
+    consumers: Vec<&'a CompiledSnippet>,
+    /// Leaves whose body reads `${value.type}` — fields, columns: they
+    /// consume a fields collection, and show members off.
+    typed: Vec<&'a CompiledSnippet>,
 }
 
 impl<'a> Vocab<'a> {
@@ -262,6 +306,8 @@ impl<'a> Vocab<'a> {
             blocks: Vec::new(),
             leaves: Vec::new(),
             composites: Vec::new(),
+            consumers: Vec::new(),
+            typed: Vec::new(),
         };
         for s in set.iter() {
             if s.composite.is_some() {
@@ -277,11 +323,76 @@ impl<'a> Vocab<'a> {
                 v.blocks.push(s);
             } else {
                 v.leaves.push(s);
+                match value_members(s) {
+                    Some(members) if members.iter().any(|m| m == "type") => v.typed.push(s),
+                    // Leaves reading only the item (or `name`/`bind`) take an
+                    // enum-like collection; ones with a default filter
+                    // (`tfn`) are tied to `src.*` and stay out.
+                    Some(_) if s.filter.is_empty() => v.consumers.push(s),
+                    _ => {}
+                }
             }
         }
         v
     }
 }
+
+/// The members a snippet's default body reads from the repeat item
+/// (`${value.key}` → `key`; a bare `${value}` contributes `""`), or `None`
+/// when the body never reads the item.
+fn value_members(snip: &CompiledSnippet) -> Option<Vec<String>> {
+    let members: Vec<String> = snip
+        .template
+        .lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .filter_map(|span| match span {
+            Span::ItemValue {
+                outer: false,
+                member,
+                ..
+            } => Some(member.clone().unwrap_or_default()),
+            _ => None,
+        })
+        .collect();
+    (!members.is_empty()).then_some(members)
+}
+
+/// The workspace collections split by shape: `(fields, enums)` — fields
+/// collections carry a `type` member, enum-like ones do not; `src.*` is
+/// neither.
+fn collection_pools(collections: &BTreeMap<String, Collection>) -> (Vec<&str>, Vec<&str>) {
+    let mut fields = Vec::new();
+    let mut enums = Vec::new();
+    for (name, collection) in collections {
+        if name.starts_with("src.") || collection.items.is_empty() {
+            continue;
+        }
+        if collection.items[0].members.contains_key("type") {
+            fields.push(name.as_str());
+        } else {
+            enums.push(name.as_str());
+        }
+    }
+    (fields, enums)
+}
+
+/// Typed inline literals for the members level: Rust spellings, which the
+/// other packs' `|native` maps respell (and Rust passes through).
+const TYPED_LITERALS: &[&str] = &[
+    "[x:f64,y:f64]",
+    "[x:f64,count:u32]",
+    "[name:String,count:u32]",
+    "[x:f64,tags:Vec<String>]",
+];
+/// Mixed-case names for the `|snake` / `|pascal` transform exercises.
+const CASED_LITERALS: &[&str] = &[
+    "[maxSize,HTTPError]",
+    "[maxSize,minSize]",
+    "[readFile,putFile]",
+];
+/// Positional filters that hold for any collection.
+const FILTERS: &[&str] = &["", "", "?first", "?last", "?!first"];
 
 /// Whether a snippet's template contains a `${child}` slot.
 fn has_child_slot(snip: &CompiledSnippet) -> bool {
@@ -315,7 +426,12 @@ fn call(snip: &CompiledSnippet, rng: &mut Rng, concepts: &mut Vec<Concept>) -> S
 
 /// Compose a candidate abbreviation for `level`, or `None` when the vocabulary
 /// lacks a trigger of the shape a level needs.
-fn compose(vocab: &Vocab, level: Level, rng: &mut Rng) -> Option<(String, Vec<Concept>)> {
+fn compose(
+    vocab: &Vocab,
+    level: Level,
+    collections: &BTreeMap<String, Collection>,
+    rng: &mut Rng,
+) -> Option<(String, Vec<Concept>)> {
     let mut concepts = Vec::new();
     let abbr = match level {
         Level::SingleTrigger => {
@@ -385,8 +501,67 @@ fn compose(vocab: &Vocab, level: Level, rng: &mut Rng) -> Option<(String, Vec<Co
             concepts.push(Concept::Operator('['));
             format!("{sa}>{}*[a,b,c]", b.trigger)
         }
+        Level::Members => compose_members(vocab, rng, &mut concepts)?,
+        Level::Collections => compose_collections(vocab, collections, rng, &mut concepts)?,
     };
     Some((abbr, concepts))
+}
+
+/// A members-level abbreviation: a typed inline literal through a
+/// `${value.type}` body, or a re-cased item in argument position.
+fn compose_members(vocab: &Vocab, rng: &mut Rng, concepts: &mut Vec<Concept>) -> Option<String> {
+    let a = rng.choice(&vocab.blocks).copied()?;
+    let sa = call(a, rng, concepts);
+    concepts.push(Concept::Operator('['));
+    let typed = rng.choice(&vocab.typed).copied();
+    let cased = rng.choice(&vocab.with_param).copied();
+    let use_typed = typed.is_some() && (cased.is_none() || rng.coin());
+    if use_typed {
+        let b = typed?;
+        concepts.push(Concept::Trigger(b.trigger.clone()));
+        concepts.push(Concept::Operator('.'));
+        let items = rng.choice(TYPED_LITERALS).copied().unwrap_or("[x:f64]");
+        Some(format!("{sa}>{}*{items}", b.trigger))
+    } else {
+        let b = cased?;
+        concepts.push(Concept::Trigger(b.trigger.clone()));
+        concepts.push(Concept::Operator('|'));
+        let items = rng.choice(CASED_LITERALS).copied().unwrap_or("[maxSize]");
+        let transform = rng.choice(&["snake", "pascal", "upper"]).copied()?;
+        Some(format!("{sa}>{}:${{value|{transform}}}*{items}", b.trigger))
+    }
+}
+
+/// A collections-level abbreviation: a typed leaf over a fields collection,
+/// or an item consumer over an enum-like one, with a positional filter some
+/// of the time.
+fn compose_collections(
+    vocab: &Vocab,
+    collections: &BTreeMap<String, Collection>,
+    rng: &mut Rng,
+    concepts: &mut Vec<Concept>,
+) -> Option<String> {
+    let (fields, enums) = collection_pools(collections);
+    let a = rng.choice(&vocab.blocks).copied()?;
+    let sa = call(a, rng, concepts);
+    let (b, name) = if rng.coin() && !fields.is_empty() {
+        (
+            rng.choice(&vocab.typed).copied()?,
+            rng.choice(&fields).copied()?,
+        )
+    } else {
+        (
+            rng.choice(&vocab.consumers).copied()?,
+            rng.choice(&enums).copied()?,
+        )
+    };
+    concepts.push(Concept::Trigger(b.trigger.clone()));
+    concepts.push(Concept::Operator('@'));
+    let filter = rng.choice(FILTERS).copied().unwrap_or("");
+    if !filter.is_empty() {
+        concepts.push(Concept::Operator('?'));
+    }
+    Some(format!("{sa}>{}*@{name}{filter}", b.trigger))
 }
 
 /// The rendering context threaded through generation: an engine, a language,
@@ -441,7 +616,7 @@ impl Gen<'_> {
             }
         }
         for _ in 0..DECOY_ATTEMPTS {
-            let Some((candidate, _)) = compose(vocab, level, rng) else {
+            let Some((candidate, _)) = compose(vocab, level, &self.ctx.collections, rng) else {
                 continue;
             };
             if let Some(body) = self.render(&candidate)
@@ -541,7 +716,7 @@ pub fn generate(
     };
 
     for _ in 0..GEN_ATTEMPTS {
-        if let Some((abbr, concepts)) = compose(&vocab, level, rng)
+        if let Some((abbr, concepts)) = compose(&vocab, level, &ctx.collections, rng)
             && let Some(target) = generator.render(&abbr)
         {
             let draft = Draft {
@@ -660,6 +835,19 @@ fn concepts_in(abbr: &str, set: &SnippetSet) -> Vec<Concept> {
             concepts.push(Concept::Operator(op));
         }
     }
+    // The data-driven forms: an inline literal, a named collection, a
+    // filter, a member reference, a transform.
+    for (needle, op) in [
+        ("*[", '['),
+        ("*@", '@'),
+        ("?", '?'),
+        ("${value.", '.'),
+        ("|", '|'),
+    ] {
+        if abbr.contains(needle) {
+            concepts.push(Concept::Operator(op));
+        }
+    }
     concepts
 }
 
@@ -717,7 +905,9 @@ mod tests {
     }
 
     fn ctx() -> ExpansionContext {
-        ExpansionContext::plain(String::new(), IndentUnit::Spaces(4))
+        let mut ctx = ExpansionContext::plain(String::new(), IndentUnit::Spaces(4));
+        ctx.collections = crate::workspace::collections("rust");
+        ctx
     }
 
     #[test]
@@ -783,6 +973,6 @@ mod tests {
             assert_eq!(Level::from_number(level.number()), Some(level));
         }
         assert_eq!(Level::from_number(0), None);
-        assert_eq!(Level::from_number(10), None);
+        assert_eq!(Level::from_number(12), None);
     }
 }

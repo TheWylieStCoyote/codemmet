@@ -667,9 +667,9 @@ fn train_runs_a_session_and_summarizes() {
 #[test]
 #[cfg(feature = "train")]
 fn train_rejects_an_out_of_range_level() {
-    let out = run_train("train-bad-level", &["--level", "10"], "");
+    let out = run_train("train-bad-level", &["--level", "12"], "");
     assert_eq!(code(&out), 3);
-    assert!(stderr(&out).contains("between 1 and 9"));
+    assert!(stderr(&out).contains("between 1 and 11"));
 }
 
 #[test]

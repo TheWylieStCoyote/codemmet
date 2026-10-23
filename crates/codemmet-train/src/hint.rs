@@ -48,6 +48,11 @@ const fn operator_name(op: char) -> &'static str {
         '*' => "repeat",
         '^' => "climb-up",
         '(' | ')' => "group",
+        '[' => "inline collection",
+        '@' => "named collection",
+        '?' => "filter",
+        '.' => "member",
+        '|' => "transform",
         _ => "operator",
     }
 }

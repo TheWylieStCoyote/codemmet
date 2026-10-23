@@ -49,7 +49,7 @@ $ codemmet train --lang python                # train another language
 
 ### Levels
 
-Lessons and focused drills are organized into nine levels, taught in order:
+Lessons and focused drills are organized into eleven levels, taught in order:
 
 1. **Single triggers** — `pr`, `ret`
 2. **Arguments** — `fn:main`, `fori:i,10`
@@ -63,9 +63,31 @@ Lessons and focused drills are organized into nine levels, taught in order:
 9. **Data-driven** `*[…]` — `struct:P>field*[x:i32,y:f64]`,
    `mod*[parser,lexer]>mtest*[empty,unicode]` (an inline collection repeats a
    node once per item — see [data-driven expansion](context-codegen.md))
+10. **Members & transforms** — `struct:P>field*[x:float,name:str]`,
+    `sqltable:P>sqlcol*[x:f64,count:u32]`, `impl:Api>fn:${value|snake}*[maxSize]`
+    (an item's `type` read by the body, re-casing with `|snake`, and the
+    `|native` / `|sql` [type maps](context-codegen.md#type-maps-valuetypenative))
+11. **Collections** `*@Name` — `match:m>arm*@Msg?!name@Handled`,
+    `struct:Copy>field*@Point`, `convert:Raw,Point`, `stub*@src.Shape.methods`
+    (named collections, [filters](syntax.md#repeat-filters-predicate),
+    [zips by name](context-codegen.md#zipping-by-name), enum payloads, and
+    interface members)
 
-Pass `--level N` (1–9) to focus a single level; otherwise lessons cover all
-nine in sequence and drills mix them.
+Pass `--level N` (1–11) to focus a single level; otherwise lessons cover all
+eleven in sequence and drills mix them.
+
+### The workspace
+
+An editor fills collections from the file you are in; the trainer has no
+file, so every session carries a small fixed **workspace** instead, spelled
+the way the language's extractor would: a `Point` and a `Raw` struct with
+typed fields, a `Msg` enum (with payloads in Rust, plus an `AppError`), a
+`Handled` list naming one variant, the `src.fns` API surface of an `area`
+function and a private `helper`, and the declared members of a `Shape`
+interface as `src.Shape.methods`. A collections exercise lists it on screen —
+`Point: x: f64, y: f64, tags: Vec<String>, …` — so you can see what
+`*@Point` or `?!name@Handled` refers to, and the sandbox shows it too, so
+`match:m>armb*@Msg` or `convert:Raw,Point` can be tried out directly.
 
 ## Keys
 

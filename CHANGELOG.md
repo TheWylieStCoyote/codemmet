@@ -63,6 +63,15 @@ follows [Semantic Versioning](https://semver.org/).
   `arity`, an explicit discriminant as `value`, and a `fields`
   sub-collection (`*@outer.fields`). A plain Go `iota` group numbers its
   constants as `value`. The new Rust `armb` arm writes `${value.bind}`.
+- **Trainer levels 10 and 11.** `codemmet train` now teaches the variable
+  features: level 10, *members & transforms* (`${value.type}` through
+  `field` / `sqlcol`, `|snake`, the `|native` and `|sql` maps) and level 11,
+  *collections* (`*@Name`, filters, `?!name@Handled`, `convert`, `errfrom`,
+  `armb`, `tfn*@src.fns`, `stub*@src.Shape.methods`). Every session seeds a
+  fixed per-language workspace — `Point`, `Raw`, `Msg`, `Handled`,
+  `src.fns`, `src.Shape.methods` — which collections exercises and the
+  sandbox list on screen; curated lessons exist for all seven languages,
+  and drills generate at both levels. `--level` now accepts 1–11.
 - **Positional `when` predicates and `${join}`.** `first`, `last` and `i=n`
   select a variant by the copy's place in its repeat (with or without an
   item), and a body starting with `${join}` continues the previous copy's

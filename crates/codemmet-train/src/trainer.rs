@@ -21,6 +21,7 @@ use super::hint::hints;
 use super::lessons;
 use super::review::ReviewState;
 use super::rng::Rng;
+use super::workspace;
 
 /// Auto-reveal the answer after this many wrong attempts on one exercise.
 const MAX_MISSES: u32 = 3;
@@ -216,8 +217,32 @@ impl<'a> Trainer<'a> {
             message: None,
         };
         trainer.ctx = ExpansionContext::plain(String::new(), trainer.default_indent());
+        // Every session sees the workspace, so `*@Point` and friends resolve
+        // in lessons, drills, review, and the sandbox alike.
+        trainer.ctx.collections = workspace::collections(&trainer.language);
         trainer.begin();
         trainer
+    }
+
+    /// The workspace collections in scope, one display line each — what a
+    /// `*@Name` in this session can refer to.
+    #[must_use]
+    pub fn workspace_lines(&self) -> Vec<String> {
+        workspace::summary(&self.ctx.collections)
+    }
+
+    /// Whether the current screen should list the workspace: a collections
+    /// exercise (the learner must see what `*@Point` holds) or the sandbox.
+    #[must_use]
+    pub fn shows_workspace(&self) -> bool {
+        match &self.phase {
+            Phase::Sandbox => true,
+            Phase::Answering | Phase::Feedback(_) => self
+                .exercise
+                .as_ref()
+                .is_some_and(|e| e.level == Level::Collections),
+            Phase::Intro(_) | Phase::Done => false,
+        }
     }
 
     /// The active language's default indent unit.
