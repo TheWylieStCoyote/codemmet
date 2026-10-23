@@ -46,6 +46,13 @@ New to codemmet? Read these in order:
   reads the surrounding code: scope-specific variants (`fn` in `impl` gains
   `&self`) and repeats driven by enum variants, struct fields, or in-scope lists
   (`match:Msg>arm*`).
+- **[Variables, members, and transforms](context-codegen.md#data-driven-repeats)**
+  — what each repeated copy can read: `${value}`, `${i}`, members like
+  `${value.type}` and `${value.bind}`, case transforms (`|snake`), type maps
+  (`|native`, `|sql`), filters (`?kind=tuple`), and zipping collections by name
+  (`?field=@outer.name`). The grammar side is in
+  [syntax.md](syntax.md#--repeat); the pack side (`[maps.*]`, `when`) is in
+  [snippets.md](snippets.md#type-maps).
 - **[CLI reference](cli.md)** — the `expand`, `render` (file mode: multi-line
   `.codemmet` source files, `cat main.rs.codemmet | codemmet >> main.rs`),
   `wrap`, `list`, `vars`, `check`, and `lsp` subcommands, their flags, and
